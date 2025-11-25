@@ -23,8 +23,18 @@ df$has.basement[df$measurein.basement == 1] <- 1
 
 # Consider assuming the ground floor measurements should assume no basement
 #df$has.basement[df$measurein.basement == 0 & is.nan(df$has.basement)] <- 0
-# I chose to drop rows 
+
+# I chose to drop NaNs 
 df <- df[!is.nan(df$has.basement), ]
+
+# Creating a new grouping of basement
+df$basement.group <- ifelse(
+  df$has.basement == 1 & df$measurein.basement == 1, "Measured in basement",
+  ifelse(df$has.basement == 1 & df$measurein.basement == 0, "Basement not measured",
+         "No basement"))
+
+df$basement.group <- factor(df$basement.group,
+                            levels = c("Measured in basement", "Basement not measured", "No basement"))
 
 
 ##### Exploratory plots
@@ -196,8 +206,11 @@ points(sample.size.jittered[37], cty.mns[37], cex=2)
 
 
 ## Uranium plots
-
-basement_colors <- c("0" = "yellow", "1" = "purple")
+basement_colors3 <- c(
+  "Measured in basement" = "darkgrey",
+  "Basement not measured" = "red",
+  "No basement" = "yellow"
+)
 
 # Plot 1: Region
 p1 <- ggplot(df, aes(x = u.full, y = y, color = region)) +
@@ -211,30 +224,25 @@ p1 <- ggplot(df, aes(x = u.full, y = y, color = region)) +
   theme_bw()
 
 # Plot 2: Basement
-p2 <- ggplot(df, aes(x = u.full, y = y, color = factor(has.basement))) +
+p2 <- ggplot(df, aes(x = u.full, y = y, color = basement.group)) +
   geom_point(alpha = 0.7, size = 2) +
-  scale_color_manual(values = basement_colors, name = "Basement") +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 1) +   # <-- regression lines
+  scale_color_manual(values = basement_colors3, name = "Basement group") +
   labs(
-    title = "Radon vs uranium (colored by basement)",
+    title = "Radon vs uranium (colored by basement group)",
     x = "log Uranium (u.full)",
     y = "log Radon (y)"
   ) +
   theme_bw()
 
+
 # Combine vertically
-p1 / p2
+p1 | p2
+
 
 ## Investigate basement status
 
-# Creating a new grouping of basement
-df$basement.group <- ifelse(
-  df$has.basement == 1 & df$measurein.basement == 1, "Measured in basement",
-  ifelse(df$has.basement == 1 & df$measurein.basement == 0, "Basement not measured",
-         "No basement")
-)
 
-df$basement.group <- factor(df$basement.group,
-                            levels = c("Measured in basement", "Basement not measured", "No basement"))
 
 ggplot(df, aes(x = basement.group, y = y, color = basement.group)) +
   geom_jitter(width = 0.15, alpha = 0.6, size = 1.8) +
