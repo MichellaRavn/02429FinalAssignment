@@ -2,6 +2,7 @@
 library(sf)
 library(tigris)
 library(ggplot2)
+library(patchwork)
 
 # Load the data
 df<-read.table("Data/Radon_MN.csv",header = T)
@@ -10,6 +11,23 @@ df<-read.table("Data/Radon_MN.csv",header = T)
 df$county.name <- toupper(trimws(df$county.name))
 df$county.name[df$county.name == "ST LOUIS"] <- "ST. LOUIS"
 df$state2 <- NULL
+
+# Renaming basement, 0 for no basement, 1 for basement
+df$has.basement <- ifelse(df$basement == "Y", 1, ifelse(df$basement == "N", 0, NaN))
+df$measurein.basement <- abs(df$floor-1)
+# Checking if the NaN for has.basement is measured in basement
+#df[is.nan(df$has.basement), c("has.basement", "measurein.basement")]
+
+# If the measurement is in the basement, then has.basement is true/1
+df$has.basement[df$measurein.basement == 1] <- 1
+
+# Consider assuming the ground floor measurements should assume no basement
+#df$has.basement[df$measurein.basement == 0 & is.nan(df$has.basement)] <- 0
+# I chose to drop rows 
+df <- df[!is.nan(df$has.basement), ]
+
+
+##### Exploratory plots
 
 # Geographic placement of the counties
 SW<-c("ROCK", "NOBLES","JACKSON","COTTONWOOD","MURRAY","PIPESTONE","LINCOLN","LYON","REDWOOD","YELLOW MEDICINE")
@@ -134,7 +152,7 @@ ggplot(plot_df, aes(x = county.order, y = mean_y, color = region)) +
   labs(
     title = "Mean radon per county",
     x = "County",
-    y = "Mean radon"
+    y = "Mean log radon"
   ) +
   theme_bw() +
   theme(
@@ -142,10 +160,95 @@ ggplot(plot_df, aes(x = county.order, y = mean_y, color = region)) +
   )
 
 
+# The given plot about samplesize with a few alterations
+par(mfrow=c(1,1))
+
+# First an empty plot
+plot(sample.size.jittered, cty.mns,
+     type = "n",                       # <-- IMPORTANT
+     xlab="sample size in county j",
+     ylab="Mean log radon in county j",
+     log="x", cex.lab=.9, cex.axis=1, mgp=c(1.5,.5,0),
+     ylim=c(0,3.2), yaxt="n", xaxt="n")
+
+axis(1, c(1,3,10,30,100), cex.axis=.9, mgp=c(1.5,.5,0))
+axis(2, seq(0,3), cex.axis=.9, mgp=c(1.5,.5,0))
+
+# Draw error bars FIRST
+for (j in 1:J){
+  lines(rep(sample.size.jittered[j],2),
+        cty.mns[j] + c(-1,1)*cty.sds[j], lwd=.5)
+}
+
+# Adding points after to have error bars behind
+points(sample.size.jittered, cty.mns,
+       pch = 20, cex = 1.3,
+       col = region_colors[ df$region[ match(names(cty.mns), df$county) ] ])
+
+# Horizontal mean line
+abline(h = mean(cty.mns), lwd = .5)
+
+title("Observed mean response values per county", cex.main=.9, line=1)
+
+# highlight max/min if needed
+points(sample.size.jittered[36], cty.mns[36], cex=2)
+points(sample.size.jittered[37], cty.mns[37], cex=2)
 
 
+## Uranium plots
 
+basement_colors <- c("0" = "yellow", "1" = "purple")
 
+# Plot 1: Region
+p1 <- ggplot(df, aes(x = u.full, y = y, color = region)) +
+  geom_point(alpha = 0.7, size = 2) +
+  scale_color_manual(values = region_colors) +
+  labs(
+    title = "Radon vs uranium (colored by region)",
+    x = "",
+    y = "log Radon (y)"
+  ) +
+  theme_bw()
 
+# Plot 2: Basement
+p2 <- ggplot(df, aes(x = u.full, y = y, color = factor(has.basement))) +
+  geom_point(alpha = 0.7, size = 2) +
+  scale_color_manual(values = basement_colors, name = "Basement") +
+  labs(
+    title = "Radon vs uranium (colored by basement)",
+    x = "log Uranium (u.full)",
+    y = "log Radon (y)"
+  ) +
+  theme_bw()
+
+# Combine vertically
+p1 / p2
+
+## Investigate basement status
+
+# Creating a new grouping of basement
+df$basement.group <- ifelse(
+  df$has.basement == 1 & df$measurein.basement == 1, "Measured in basement",
+  ifelse(df$has.basement == 1 & df$measurein.basement == 0, "Basement not measured",
+         "No basement")
+)
+
+df$basement.group <- factor(df$basement.group,
+                            levels = c("Measured in basement", "Basement not measured", "No basement"))
+
+ggplot(df, aes(x = basement.group, y = y, color = basement.group)) +
+  geom_jitter(width = 0.15, alpha = 0.6, size = 1.8) +
+  stat_summary(fun = mean, geom = "point", 
+               size = 3, shape = 21, fill = "black", color = "black") +
+  labs(
+    title = "Log radon by basement status",
+    x = " ",
+    y = "Log radon"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
+    legend.position = "none"
+  )
 
 
