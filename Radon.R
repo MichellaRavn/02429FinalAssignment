@@ -3,6 +3,11 @@ library(sf)
 library(tigris)
 library(ggplot2)
 library(patchwork)
+library(lmerTest)
+
+#####################################################
+# Cleaning data
+#####################################################
 
 # Load the data
 df<-read.table("Data/Radon_MN.csv",header = T)
@@ -14,6 +19,7 @@ df$state2 <- NULL
 
 # Renaming basement, 0 for no basement, 1 for basement
 df$has.basement <- ifelse(df$basement == "Y", 1, ifelse(df$basement == "N", 0, NaN))
+df$has.basement <- as.factor(df$has.basement)
 df$measurein.basement <- abs(df$floor-1)
 # Checking if the NaN for has.basement is measured in basement
 #df[is.nan(df$has.basement), c("has.basement", "measurein.basement")]
@@ -37,7 +43,9 @@ df$basement.group <- factor(df$basement.group,
                             levels = c("Measured in basement", "Basement not measured", "No basement"))
 
 
-##### Exploratory plots
+#####################################################
+# Exploratory plots
+#####################################################
 
 # Geographic placement of the counties
 SW<-c("ROCK", "NOBLES","JACKSON","COTTONWOOD","MURRAY","PIPESTONE","LINCOLN","LYON","REDWOOD","YELLOW MEDICINE")
@@ -206,10 +214,9 @@ points(sample.size.jittered[37], cty.mns[37], cex=2)
 
 
 ## Uranium plots
-basement_colors3 <- c(
-  "Measured in basement" = "darkgrey",
-  "Basement not measured" = "red",
-  "No basement" = "yellow"
+has_basement_colors <- c(
+  "0" = "skyblue",   # no basement (skyblue)
+  "1" = "purple"      # has basement
 )
 
 # Plot 1: Region
@@ -223,34 +230,32 @@ p1 <- ggplot(df, aes(x = u.full, y = y, color = region)) +
   ) +
   theme_bw()
 
-# Plot 2: Basement
-p2 <- ggplot(df, aes(x = u.full, y = y, color = basement.group)) +
+# Plot 2: Has basement vs no basement
+p2 <- ggplot(df, aes(x = u.full, y = y, color = factor(has.basement))) +
   geom_point(alpha = 0.7, size = 2) +
-  geom_smooth(method = "lm", se = FALSE, linewidth = 1) +   # <-- regression lines
-  scale_color_manual(values = basement_colors3, name = "Basement group") +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 1) +
+  scale_color_manual(values = has_basement_colors, name = "Has basement") +
   labs(
-    title = "Radon vs uranium (colored by basement group)",
+    title = "Radon vs uranium (colored by basement yes/no)",
     x = "log Uranium (u.full)",
     y = "log Radon (y)"
   ) +
   theme_bw()
 
+# Combine
+p1 / p2
 
-# Combine vertically
-p1 | p2
 
 
 ## Investigate basement status
-
-
-
-ggplot(df, aes(x = basement.group, y = y, color = basement.group)) +
+ggplot(df, aes(x = factor(has.basement), y = y, color = factor(has.basement))) +
   geom_jitter(width = 0.15, alpha = 0.6, size = 1.8) +
-  stat_summary(fun = mean, geom = "point", 
+  stat_summary(fun = mean, geom = "point",
                size = 3, shape = 21, fill = "black", color = "black") +
+  scale_color_manual(values = has_basement_colors) +
   labs(
     title = "Log radon by basement status",
-    x = " ",
+    x = "Has basement",
     y = "Log radon"
   ) +
   theme_bw() +
@@ -260,3 +265,13 @@ ggplot(df, aes(x = basement.group, y = y, color = basement.group)) +
   )
 
 
+#####################################################
+# Modelling
+#####################################################
+
+
+m0 <- lmer(y ~ u.full*basement.group+( 1 | county), data = df)
+ranova(m0)
+m0<-update(m0,REML=F)
+drop1(m0)
+summary(m0)
