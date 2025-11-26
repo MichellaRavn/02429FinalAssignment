@@ -4,6 +4,9 @@ library(tigris)
 library(ggplot2)
 library(patchwork)
 library(lmerTest)
+library(MASS)
+library(lattice)
+library(predictmeans) #residplot
 
 #####################################################
 # Cleaning data
@@ -19,7 +22,7 @@ df$state2 <- NULL
 
 # Renaming basement, 0 for no basement, 1 for basement
 df$has.basement <- ifelse(df$basement == "Y", 1, ifelse(df$basement == "N", 0, NaN))
-df$has.basement <- as.factor(df$has.basement)
+
 df$measurein.basement <- abs(df$floor-1)
 # Checking if the NaN for has.basement is measured in basement
 #df[is.nan(df$has.basement), c("has.basement", "measurein.basement")]
@@ -32,16 +35,19 @@ df$has.basement[df$measurein.basement == 1] <- 1
 
 # I chose to drop NaNs 
 df <- df[!is.nan(df$has.basement), ]
+df$has.basement <- as.factor(df$has.basement)
 
 # Creating a new grouping of basement
 df$basement.group <- ifelse(
-  df$has.basement == 1 & df$measurein.basement == 1, "Measured in basement",
-  ifelse(df$has.basement == 1 & df$measurein.basement == 0, "Basement not measured",
-         "No basement"))
+  df$has.basement == 1 & df$measurein.basement == 1, "MB",
+  ifelse(df$has.basement == 1 & df$measurein.basement == 0, "BNM",
+         "NB"))
 
-df$basement.group <- factor(df$basement.group,
-                            levels = c("Measured in basement", "Basement not measured", "No basement"))
+df$basement.group <- as.factor(df$basement.group)
 
+
+# Overview of county (un)balance
+table(df$county)
 
 #####################################################
 # Exploratory plots
@@ -102,6 +108,8 @@ region_colors <- c(
   S  = col_S,
   SE = col_SE
 )
+region.order <- c("NW", "N", "NE", "W", "M", "E", "SW", "S", "SE")
+
 
 # Provided code:
 # Counties
@@ -129,18 +137,33 @@ mn_map$NAME <- toupper(trimws(mn_map$NAME))
 names(mn_map)[names(mn_map) == "NAME"] <- "county.name"
 
 county_region_map <- unique(df[, c("county.name", "region")])
+county_number_map <- unique(df[, c("county.name", "county")])
+mn_map_joined$region <- factor(mn_map_joined$region,
+                               levels = region.order)
+
 
 mn_map_joined <- merge(
   mn_map,
-  county_region_map,
+  merge(county_region_map, county_number_map, by="county.name"),
   by = "county.name",
   all.x = TRUE
 )
 
-ggplot(mn_map_joined) +
-  geom_sf(aes(fill = region), color = "white", size = 0.2) +
-  scale_fill_manual(values = region_colors) +
+centroids <- st_centroid(mn_map_joined)
+
+ggplot() +
+  geom_sf(data = mn_map_joined, aes(fill = region), color = "white", size = 0.2) +
+  # Uncomment for numbers added
+  geom_sf_text(
+    data = centroids,
+    aes(label = county),
+    size = 3,
+    color = "black"
+  ) +
+  scale_fill_manual(values = region_colors,
+                    breaks = region.order ) +
   theme_void()
+
 
 
 # Plotting means
@@ -155,7 +178,6 @@ plot_df <- data.frame(
   stringsAsFactors = FALSE
 )
 
-region.order <- c("NW", "N", "NE", "E", "M", "W", "SW", "S", "SE")
 
 plot_df$region <- factor(plot_df$region, levels = region.order)
 plot_df <- plot_df[order(plot_df$region, plot_df$mean_y), ]
@@ -168,7 +190,7 @@ ggplot(plot_df, aes(x = county.order, y = mean_y, color = region)) +
   geom_point(size = 3) +
   scale_color_manual(values = region_colors) +
   labs(
-    title = "Mean radon per county",
+    title = "Observed mean radon per county",
     x = "County",
     y = "Mean log radon"
   ) +
@@ -270,8 +292,50 @@ ggplot(df, aes(x = factor(has.basement), y = y, color = factor(has.basement))) +
 #####################################################
 
 
-m0 <- lmer(y ~ u.full*basement.group+( 1 | county), data = df)
+m0 <- lmer(y ~ u.full:measurein.basement + u.full + measurein.basement +( 1 | county), data = df)
 ranova(m0)
 m0<-update(m0,REML=F)
 drop1(m0)
+
+residplot(m0) 
+
+m1 <- lmer(y ~ u.full:has.basement + u.full + has.basement + ( 1 | county), data = df)
+m1<-update(m1,REML=F)
+
+m2 <- lmer(y ~ u.full:basement.group + u.full + basement.group +( 1 | county), data = df)
+m2 <- update(m2,REML=F)
+
+AIC(m0, m1, m2)
+BIC(m0, m1, m2)
+
+drop1(m2)
+
+# Investigate m2
+summary(m2) # Maybe no basement and basement not measured the same effect?
+
+# Floor model: 
 summary(m0)
+
+
+# Residual plot of mixed model 
+residplot(m2) 
+
+
+
+# Cooks distance
+cd <- cooks.distance(m3)
+plot(cd,type="h")
+df[cd>0.10,c("y","county","county.name","region","u.full","has.basement")]
+
+
+# Final model results
+
+mfinal <- m0
+
+dotplot(ranef(mfinal, condVar=TRUE), strip = FALSE, ylab="")
+
+residplot(mfinal)
+
+#ranef(mfinal)
+
+confint(mfinal)
