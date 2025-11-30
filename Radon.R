@@ -19,32 +19,30 @@ df<-read.table("Data/Radon_MN.csv",header = T)
 df$county.name <- toupper(trimws(df$county.name))
 df$county.name[df$county.name == "ST LOUIS"] <- "ST. LOUIS"
 df$state2 <- NULL
+names(df)[names(df) == "u.full"] <- "u"
+df$x <- as.factor(df$x)
 
 # Renaming basement, 0 for no basement, 1 for basement
-df$has.basement <- ifelse(df$basement == "Y", 1, ifelse(df$basement == "N", 0, NaN))
+df$b <- ifelse(df$basement == "Y", 1, ifelse(df$basement == "N", 0, NaN))
 
-df$measurein.basement <- abs(df$floor-1)
-# Checking if the NaN for has.basement is measured in basement
-#df[is.nan(df$has.basement), c("has.basement", "measurein.basement")]
-
-# If the measurement is in the basement, then has.basement is true/1
-df$has.basement[df$measurein.basement == 1] <- 1
+# If the measurement is in the basement, then b is true/1
+df$b[df$x == 0] <- 1
 
 # Consider assuming the ground floor measurements should assume no basement
-#df$has.basement[df$measurein.basement == 0 & is.nan(df$has.basement)] <- 0
+#df$b[df$x == 1 & is.nan(df$b)] <- 0
 
-# I chose to drop NaNs 
-df <- df[!is.nan(df$has.basement), ]
-df$has.basement <- as.factor(df$has.basement)
+# Drop NaNs for subanalysis
+dfsub <- df[!is.nan(df$b), ]
+
 
 # Creating a new grouping of basement
-df$basement.group <- ifelse(
-  df$has.basement == 1 & df$measurein.basement == 1, "MB",
-  ifelse(df$has.basement == 1 & df$measurein.basement == 0, "BNM",
+dfsub$bg<- ifelse(
+  dfsub$b == 1 & dfsub$x == 0, "MB",
+  ifelse(dfsub$b == 1 & dfsub$x == 1, "BNM",
          "NB"))
 
-df$basement.group <- as.factor(df$basement.group)
-
+dfsub$bg<- as.factor(dfsub$bg)
+df$b <- as.factor(df$b)
 
 # Overview of county (un)balance
 table(df$county)
@@ -138,9 +136,6 @@ names(mn_map)[names(mn_map) == "NAME"] <- "county.name"
 
 county_region_map <- unique(df[, c("county.name", "region")])
 county_number_map <- unique(df[, c("county.name", "county")])
-mn_map_joined$region <- factor(mn_map_joined$region,
-                               levels = region.order)
-
 
 mn_map_joined <- merge(
   mn_map,
@@ -149,17 +144,34 @@ mn_map_joined <- merge(
   all.x = TRUE
 )
 
+mn_map_joined$region <- factor(mn_map_joined$region,
+                               levels = region.order)
+
+
+
 centroids <- st_centroid(mn_map_joined)
+highlight <- centroids[centroids$county %in% c(36, 37), ]
 
 ggplot() +
   geom_sf(data = mn_map_joined, aes(fill = region), color = "white", size = 0.2) +
-  # Uncomment for numbers added
-  geom_sf_text(
-    data = centroids,
-    aes(label = county),
-    size = 3,
-    color = "black"
+  
+  geom_sf(
+    data = highlight,
+    color = "black",
+    #fill = "red",
+    size = 5,
+    shape = 21,
+    stroke = 1.2
   ) +
+  
+  # Uncomment for numbers added
+  #geom_sf_text(
+  #  data = centroids,
+  #  aes(label = county),
+  #  size = 3,
+  #  color = "black"
+  #) +
+  
   scale_fill_manual(values = region_colors,
                     breaks = region.order ) +
   theme_void()
@@ -167,7 +179,7 @@ ggplot() +
 
 
 # Plotting means
-# County names and regions aligned to tapply indexing
+# County names and regions aligned to tapply indexing for plotting
 county_names <- tapply(df$county.name, df$county, function(x) x[1])
 county_regions <- tapply(df$region, df$county, function(x) x[1])
 
@@ -177,7 +189,6 @@ plot_df <- data.frame(
   mean_y = as.numeric(cty.mns),
   stringsAsFactors = FALSE
 )
-
 
 plot_df$region <- factor(plot_df$region, levels = region.order)
 plot_df <- plot_df[order(plot_df$region, plot_df$mean_y), ]
@@ -200,12 +211,14 @@ ggplot(plot_df, aes(x = county.order, y = mean_y, color = region)) +
   )
 
 
+
+
 # The given plot about samplesize with a few alterations
 par(mfrow=c(1,1))
 
 # First an empty plot
 plot(sample.size.jittered, cty.mns,
-     type = "n",                       # <-- IMPORTANT
+     type = "n",                       
      xlab="sample size in county j",
      ylab="Mean log radon in county j",
      log="x", cex.lab=.9, cex.axis=1, mgp=c(1.5,.5,0),
@@ -214,7 +227,7 @@ plot(sample.size.jittered, cty.mns,
 axis(1, c(1,3,10,30,100), cex.axis=.9, mgp=c(1.5,.5,0))
 axis(2, seq(0,3), cex.axis=.9, mgp=c(1.5,.5,0))
 
-# Draw error bars FIRST
+# Draw error bars 
 for (j in 1:J){
   lines(rep(sample.size.jittered[j],2),
         cty.mns[j] + c(-1,1)*cty.sds[j], lwd=.5)
@@ -230,55 +243,64 @@ abline(h = mean(cty.mns), lwd = .5)
 
 title("Observed mean response values per county", cex.main=.9, line=1)
 
+# The max and min
+cty.mns[cty.mns==max(cty.mns)]
+cty.mns[cty.mns==min(cty.mns)]
+
+county_names[cty.mns==max(cty.mns)] # Lac Qui Parle
+county_names[cty.mns==min(cty.mns)] # Lake
+
 # highlight max/min if needed
 points(sample.size.jittered[36], cty.mns[36], cex=2)
 points(sample.size.jittered[37], cty.mns[37], cex=2)
 
 
 ## Uranium plots
-has_basement_colors <- c(
-  "0" = "skyblue",   # no basement (skyblue)
-  "1" = "purple"      # has basement
+floor_colors <- c(
+  "1" = "gold2",   # ground floor
+  "0" = "grey37"      # basement
 )
 
 # Plot 1: Region
-p1 <- ggplot(df, aes(x = u.full, y = y, color = region)) +
+p1 <- ggplot(df, aes(x = u, y = y, color = region)) +
   geom_point(alpha = 0.7, size = 2) +
-  scale_color_manual(values = region_colors) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 1) +
+  scale_color_manual(values = region_colors, breaks=region.order) +
   labs(
-    title = "Radon vs uranium (colored by region)",
-    x = "",
-    y = "log Radon (y)"
+    title = "Radon vs uranium - by region",
+    x = "log uranium (u)",
+    y = "log radon (y)"
   ) +
   theme_bw()
 
-# Plot 2: Has basement vs no basement
-p2 <- ggplot(df, aes(x = u.full, y = y, color = factor(has.basement))) +
+# Plot 2: Floor
+p2 <- ggplot(df, aes(x = u, y = y, color = factor(x))) +
   geom_point(alpha = 0.7, size = 2) +
   geom_smooth(method = "lm", se = FALSE, linewidth = 1) +
-  scale_color_manual(values = has_basement_colors, name = "Has basement") +
+  scale_color_manual(values = floor_colors, name = "Floor (x)") +
   labs(
-    title = "Radon vs uranium (colored by basement yes/no)",
-    x = "log Uranium (u.full)",
-    y = "log Radon (y)"
+    title = "Radon vs uranium - by floor",
+    x = "log uranium (u)",
+    y = "log radon (y)"
   ) +
   theme_bw()
 
 # Combine
-p1 / p2
+p1 | p2
+
+table(df$x)
 
 
-
-## Investigate basement status
-ggplot(df, aes(x = factor(has.basement), y = y, color = factor(has.basement))) +
+## Investigate floor status
+p_strip <- ggplot(df, aes(x = x, y = y, color = x)) +
   geom_jitter(width = 0.15, alpha = 0.6, size = 1.8) +
   stat_summary(fun = mean, geom = "point",
                size = 3, shape = 21, fill = "black", color = "black") +
-  scale_color_manual(values = has_basement_colors) +
+  scale_color_manual(values = floor_colors) +
   labs(
-    title = "Log radon by basement status",
-    x = "Has basement",
-    y = "Log radon"
+    title = "Log radon - by floor",
+    x = "Floor (x)",
+    y = "Log radon (y)"
   ) +
   theme_bw() +
   theme(
@@ -286,56 +308,86 @@ ggplot(df, aes(x = factor(has.basement), y = y, color = factor(has.basement))) +
     legend.position = "none"
   )
 
+p_box <- ggplot(df, aes(x = x, y = y, fill = x)) +
+  geom_boxplot(alpha = 0.6, outlier.shape = NA) +
+  scale_fill_manual(values = floor_colors) +
+  labs(
+    title = "Log radon – boxplot by floor",
+    x = "Floor (x)",
+    y = "Log radon (y)"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
+    legend.position = "none"
+  )
+
+p_box / p_strip
 
 #####################################################
 # Modelling
 #####################################################
 
+# Testing basement for personal interest
+m0 <- lmer(y ~ u:x + u + x + ( 1 | county), data = dfsub) 
+mb <- lmer(y ~ u:b + u + b + ( 1 | county), data = dfsub)
+mbg <- lmer(y ~ u:bg+ u + bg+( 1 | county), data = dfsub)
+m1 <- lmer(y ~ u:x + u + I(u^2) + x + ( 1 | county), data = dfsub)
 
-m0 <- lmer(y ~ u.full:measurein.basement + u.full + measurein.basement +( 1 | county), data = df)
 ranova(m0)
-m0<-update(m0,REML=F)
-drop1(m0)
+ranova(mb)
+ranova(mbg)
+ranova(m1)
 
-residplot(m0) 
+m0 <- update(m0,REML=F)
+mb <- update(mb,REML=F)
+mbg <- update(mbg,REML=F)
 
-m1 <- lmer(y ~ u.full:has.basement + u.full + has.basement + ( 1 | county), data = df)
-m1<-update(m1,REML=F)
 
-m2 <- lmer(y ~ u.full:basement.group + u.full + basement.group +( 1 | county), data = df)
-m2 <- update(m2,REML=F)
+AIC(m0, mb, mbg, m1)
+BIC(m0, mb, mbg, m1)
 
-AIC(m0, m1, m2)
-BIC(m0, m1, m2)
+anova(mbg,mb) # Prefer mbg
+anova(mbg,m0) # Prefer m0 (basement no effect)
+anova(m0,m3) # Prefer m0
 
-drop1(m2)
+# Moving on with m0, full data
+m0 <- lmer(y ~ u*x + u + x + ( 1 | county), data = df, REML=TRUE) 
+ranova(m0)
+m0 <- update(m0,REML=F)
+drop1(m0) # interaction significant 
 
-# Investigate m2
-summary(m2) # Maybe no basement and basement not measured the same effect?
-
-# Floor model: 
+m0 <- update(m0,REML=T)
 summary(m0)
 
-
-# Residual plot of mixed model 
+residplot(m0) 
+residplot(mb) 
+residplot(mbg) 
 residplot(m2) 
 
 
+m0<-update(m0,REML=T)
+summary(m0) 
+
 
 # Cooks distance
-cd <- cooks.distance(m3)
-plot(cd,type="h")
-df[cd>0.10,c("y","county","county.name","region","u.full","has.basement")]
+cd <- cooks.distance(m0)
+plot(cd, type = "h", main = "Cook's distance", xlab = "Observation", ylab = "Distance")
+df[cd>0.15,c("y","county","county.name","region","u","b")]
+
+
+
+
+
 
 
 # Final model results
-
 mfinal <- m0
 
-dotplot(ranef(mfinal, condVar=TRUE), strip = FALSE, ylab="")
 
 residplot(mfinal)
 
 #ranef(mfinal)
 
 confint(mfinal)
+
