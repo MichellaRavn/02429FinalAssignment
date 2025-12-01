@@ -16,6 +16,7 @@ library(dplyr)
 
 # Load the data
 rats <- read.table("Data/Rats_Box.txt", header = TRUE, sep = ",")
+treat_names <- c("Control", "Thyroxin", "Thioracil")
 
 # Finding weight parameter, cumulative weight gain
 rats <- within(rats, {

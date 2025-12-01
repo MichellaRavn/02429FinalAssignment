@@ -21,6 +21,7 @@ df$county.name[df$county.name == "ST LOUIS"] <- "ST. LOUIS"
 df$state2 <- NULL
 names(df)[names(df) == "u.full"] <- "u"
 df$x <- as.factor(df$x)
+df$county <- as.factor(df$county)
 
 # Renaming basement, 0 for no basement, 1 for basement
 df$b <- ifelse(df$basement == "Y", 1, ifelse(df$basement == "N", 0, NaN))
@@ -414,20 +415,53 @@ r2_nakagawa(m0)
 
 ############## Results plots 
 
+df$pred_y <- predict(m0)
+df$pred_y_fix <- predict(m0,re.from=NA)
+df$pred_y_rand <- df$pred_y - df$pred_y_fix
+(cty.mns.pred = tapply(df$pred_y,df$county,mean))
 
+plot_df <- data.frame(
+  county.name = county_names,
+  region = county_regions,
+  mean_y = as.numeric(cty.mns),
+  mean_pred_y = as.numeric(cty.mns.pred),
+  stringsAsFactors = FALSE
+)
 
+plot_df$region <- factor(plot_df$region, levels = region.order)
+plot_df <- plot_df[order(plot_df$region, plot_df$mean_y), ]
 
+plot_df$county.order <- factor(plot_df$county.name,
+                               levels = plot_df$county.name)
 
-library(emmeans) #estimated response values
-emmeans(m0, ~ x)
+ggplot(plot_df, aes(x = county.order)) +
+  
+  # Observed means (already in your plot)
+  geom_point(aes(y = mean_y, color = region), size = 3) +
+  
+  # Predicted means (new)
+  geom_point(aes(y = mean_pred_y), color = "red", size = 1) +
+  
+  scale_color_manual(values = region_colors) +
+  labs(
+    title = "Observed and predicted mean radon per county",
+    x = "County",
+    y = "Mean log radon"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+  )
 
-u_vals <- with(df, c(min(u), mean(u), max(u)))
+### Emmeans
 
-emmeans(m0, ~ x, at = list(u = u_vals))
+u_vals <- quantile(df$u, probs = c(0.25, 0.50, 0.75))
 
+emmeans_radon <- emmeans(m0, "x", by = "u", at = list(u = u_vals))
+plot(emmeans_radon)
 
-pairs(emmeans(m0, ~ u, at = list(x = c(0,1) )))
-
-emmeans(m0, "u", by = c("x"))
-
+plot(exp(emmeans_radon), horizontal = FALSE, emmGrid = TRUE) +
+  ggtitle("Predicted radon concentration") +
+  xlab("Predicted radon concentration") +
+  ylab("Floor (x)")
 
