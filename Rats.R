@@ -70,11 +70,11 @@ rats_plot <- bind_rows(
 
 # Individual profiles
 p1 <- ggplot(rats_plot, aes(x = weekQ, y = y, group = Rat, colour = Trt)) +
-  geom_line(alpha = 0.5) +
+  geom_line(alpha = 0.8) +
   labs(
-    title = "Weight per rat over time",
+    title = "Weight over time",
     x = "Week",
-    y = "Weight"
+    y = "Weight (gram)"
   ) +
   theme_bw()
 
@@ -88,8 +88,8 @@ p2 <- ggplot(mns, aes(x = weekQ, y = y, group = Trt, colour = Trt)) +
   geom_point(size = 2) +
   labs(
     title = "Mean weight per treatment",
-    x = "Week (0 = baseline y0)",
-    y = "Mean weight"
+    x = "Week",
+    y = "Mean weight (gram)"
   ) +
   theme_bw()
 
@@ -102,69 +102,83 @@ p1 / p2
 m1 <- lmer(y ~ weekQ + Trt + weekQ:Trt + y0 + (1 | Rat), data = rats)
 m2 <- lmer(y ~ weekF + Trt + weekF:Trt + y0 + (1 | Rat), data = rats)
 m3 <- lmer(y ~ weekQ + Trt + weekQ:Trt + y0 + (1 + weekQ | Rat), data = rats)
+m4 <- lmer(y ~ I(weekQ^2) + weekQ + Trt + weekQ:Trt + y0 + (1 + weekQ | Rat), data = rats)
+m5 <- lmer(y ~ I(weekQ^3) + I(weekQ^2) + weekQ + Trt + weekQ:Trt + y0 + (1 + weekQ | Rat), data = rats)
+
 
 ranova(m1)
 ranova(m2)
-ranova(m3) # random slope significant
+ranova(m3) 
+ranova(m4) 
+ranova(m5) 
+
+residplot(m1) # looks like adding curvature is needed
+residplot(m2)
+residplot(m3) # funnel shaped
+residplot(m4) # almost identical to m3
+residplot(m5) # slightly more flat res vs fit
+
 
 anova(m1,m2) # prefers m1, time as a numeric
 anova(m1,m3) # prefers m3, random slope
+anova(m1,m4)
+anova(m1,m5) # prefer m5, but stick with m1 for simplicity
+
+drop1(m3) # Interaction significant
+drop1(m5) # Interactions significant
+
+# AIC, BIC - prefer m3, simple model with random slope
+AIC(m1,m2,m3,m4)
+BIC(m1,m2,m3,m4)
+
+m3_lm <- lm(y ~ weekQ + Trt + weekQ:Trt + y0, data = rats)
 
 # Checking for transformation (no indication, but making sure)
-m3_lm <- lm(y ~ weekQ + Trt + weekQ:Trt + y0, data = rats)
 aux <- boxcox(m3_lm, lambda = seq(-1, 2, by = 0.05))
 (lambda<-aux$x[which.max(aux$y)]) # 0 is in the CI, 1 is not = log transform
 
 # Log transforming
-
 rats$logy <- log(rats$y)
 rats$logy0 <- log(rats$y0)
 
-m4 <- lmer(logy ~ weekQ + Trt + weekQ:Trt + logy0 + (1 + weekQ | Rat), data = rats)
-
-# AIC, BIC - prefer m4
-AIC(m1,m2,m3,m4)
-BIC(m1,m2,m3,m4)
-
+m6 <- lmer(logy ~ weekQ + Trt + weekQ:Trt + logy0 + (1 + weekQ | Rat), data = rats)
 # Residuals are curved, consider squaring week
-m5 <- lmer(logy ~ I(weekQ^2) + weekQ + Trt + weekQ:Trt + logy0 + (1 + weekQ | Rat), data = rats)
-m6 <- lmer(logy ~ I(weekQ^3)+I(weekQ^2) + weekQ + Trt + weekQ:Trt + logy0 + (1 + weekQ + weekQ^2 + weekQ^3 | Rat), data = rats)
+m7 <- lmer(logy ~ I(weekQ^2) + weekQ + Trt + weekQ:Trt + logy0 + (1 + weekQ | Rat), data = rats)
+m8 <- lmer(logy ~ I(weekQ^3)+I(weekQ^2) + weekQ + Trt + weekQ:Trt + logy0 + (1 + weekQ + weekQ^2 + weekQ^3 | Rat), data = rats)
 
-residplot(m4)
-residplot(m5)
 residplot(m6)
+residplot(m7)
+residplot(m8)
 
 anova(m4,m5) # prefer m5
-anova(m5,m6) # prefer m6, but suggest m5 for simplicity
+anova(m5,m6) # prefer m6
 
-AIC(m4,m5,m6)
-BIC(m4,m5,m6) # m6 has lowest, but not much more than m5
+AIC(m1,m2,m3,m4,m5,m6,m7,m8)
+BIC(m1,m2,m3,m4,m5,m6,m7,m8) # m8 has lowest, but already m6 and m7 are much better
 
-m7 <- lmer(logy ~ I(weekQ^2) + weekQ + Trt + weekQ:Trt + logy0 + (1 + weekQ + weekQ^2 | Rat), data = rats)
-
-
-m_final <- m5
-# Variance
-# Extract variance components
-VC     <- VarCorr(m_final)
-Sigma  <- as.matrix(VC$Rat)        # 2×2 matrix: intercept & slope
-sigres <- VC$Residual[1]           # residual variance
-
-# ICC function for random-intercept + random-slope model
-icc_at <- function(x) {
-  rand_var <- Sigma[1,1] + 2*Sigma[1,2]*x + Sigma[2,2]*x^2
-  rand_var / (rand_var + sigres)
-}
-
-# ICC at weeks 1–4
-ICC <- sapply(1:4, icc_at)
-ICC
+library(performance)
+r2_nakagawa(m1)
+r2_nakagawa(m2)
+r2_nakagawa(m3)
+r2_nakagawa(m4)
+r2_nakagawa(m5)
+r2_nakagawa(m6)
+r2_nakagawa(m7)
+r2_nakagawa(m8)
 
 
-residplot(m1)
-residplot(m2)
-residplot(m3)
-residplot(m4)
+# However acceptable results from m3 in residplot, thus recommending for final model
+mfinal <- m3
+
+
+
+
+emmeans(mfinal,"Trt")
+
+
+
+
+
 
 ## Checking correlation structures
 
@@ -231,9 +245,9 @@ rats_plot <- bind_rows(
 
 # Individual profiles
 p1 <- ggplot(rats_plot, aes(x = weekQ, y = logy, group = Rat, colour = Trt)) +
-  geom_line(alpha = 0.5) +
+  geom_line(alpha = 0.8) +
   labs(
-    title = "Log weight per rat over time",
+    title = "Log weight over time",
     x = "Week",
     y = "Log weight"
   ) +

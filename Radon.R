@@ -44,7 +44,7 @@ dfsub$bg<- ifelse(
 dfsub$bg<- as.factor(dfsub$bg)
 df$b <- as.factor(df$b)
 
-# Overview of county (un)balance
+# Overview of county (un)balance (sample sizes)
 table(df$county)
 
 #####################################################
@@ -155,22 +155,22 @@ highlight <- centroids[centroids$county %in% c(36, 37), ]
 ggplot() +
   geom_sf(data = mn_map_joined, aes(fill = region), color = "white", size = 0.2) +
   
-  geom_sf(
-    data = highlight,
-    color = "black",
-    #fill = "red",
-    size = 5,
-    shape = 21,
-    stroke = 1.2
-  ) +
+  #geom_sf(
+  #  data = highlight,
+  #  color = "black",
+  #  #fill = "red",
+  #  size = 5,
+  #  shape = 21,
+  #  stroke = 1.2
+  #) +
   
   # Uncomment for numbers added
-  #geom_sf_text(
-  #  data = centroids,
-  #  aes(label = county),
-  #  size = 3,
-  #  color = "black"
-  #) +
+  geom_sf_text(
+    data = centroids,
+    aes(label = county),
+    size = 3,
+    color = "black"
+  ) +
   
   scale_fill_manual(values = region_colors,
                     breaks = region.order ) +
@@ -351,43 +351,83 @@ anova(mbg,mb) # Prefer mbg
 anova(mbg,m0) # Prefer m0 (basement no effect)
 anova(m0,m3) # Prefer m0
 
-# Moving on with m0, full data
-m0 <- lmer(y ~ u*x + u + x + ( 1 | county), data = df, REML=TRUE) 
-ranova(m0)
-m0 <- update(m0,REML=F)
-drop1(m0) # interaction significant 
-
-m0 <- update(m0,REML=T)
-summary(m0)
 
 residplot(m0) 
 residplot(mb) 
 residplot(mbg) 
 residplot(m2) 
 
+# Moving on with m0, full data
+m0 <- lmer(y ~ u*x + u + x + ( 1 | county), data = df, REML=TRUE) 
+ranova(m0)
+m0 <- update(m0,REML=F)
+drop1(m0) # interaction significant
+
+AIC(m0)
+BIC(m0)
 
 m0<-update(m0,REML=T)
 summary(m0) 
 
+## predictions 
+df$pred <- predict(m0)
 
 # Cooks distance
 cd <- cooks.distance(m0)
 plot(cd, type = "h", main = "Cook's distance", xlab = "Observation", ylab = "Distance")
-df[cd>0.15,c("y","county","county.name","region","u","b")]
+df[cd>0.2,c("y","pred","county","county.name","region","u","x")]
+
+# Random effect
+dotplot(ranef(m0, condVar = TRUE),
+        strip = FALSE,
+        ylab = "",
+        scales = list(cex = 0.5))   # smaller labels
+
+## Model parameters
+# Raw
+est  <- fixef(m0)                   # raw estimates
+ci   <- confint(m0, parm = names(est))  # 2.5% and 97.5%
+
+# Back-transform (exp)
+est_bt <- exp(est)
+ci_bt  <- exp(ci)
+
+#--- Combine into table ---
+param_table <- data.frame(
+  Parameter = names(est),
+  Estimate_raw = round(est, 2),
+  CI_low_raw = round(ci[,1], 2),
+  CI_high_raw = round(ci[,2], 2),
+  Estimate_bt = round(est_bt, 2),
+  CI_low_bt = round(ci_bt[,1],2),
+  CI_high_bt = round(ci_bt[,2], 2)
+)
+
+param_table
+
+library(performance)
+r2_nakagawa(m0)
+
+ ## 0.0399 ~ 4% of variance described by random effect of county
+
+
+
+############## Results plots 
 
 
 
 
 
+library(emmeans) #estimated response values
+emmeans(m0, ~ x)
+
+u_vals <- with(df, c(min(u), mean(u), max(u)))
+
+emmeans(m0, ~ x, at = list(u = u_vals))
 
 
-# Final model results
-mfinal <- m0
+pairs(emmeans(m0, ~ u, at = list(x = c(0,1) )))
 
+emmeans(m0, "u", by = c("x"))
 
-residplot(mfinal)
-
-#ranef(mfinal)
-
-confint(mfinal)
 
