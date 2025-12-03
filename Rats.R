@@ -135,9 +135,11 @@ AIC(m1,m2,m3,m4)
 BIC(m1,m2,m3,m4)
 
 m3_lm <- lm(y ~ weekQ + Trt + weekQ:Trt + y0, data = rats)
+m5_lm <- lm(y ~ I(weekQ^3) + I(weekQ^2) + weekQ + Trt + weekQ:Trt + y0, data = rats)
+
 
 # Checking for transformation (no indication, but making sure)
-aux <- boxcox(m3_lm, lambda = seq(-1, 2, by = 0.05))
+aux <- boxcox(m5_lm, lambda = seq(-1, 2, by = 0.05))
 (lambda<-aux$x[which.max(aux$y)]) # 0 is in the CI, 1 is not = log transform
 
 # Log transforming
@@ -177,7 +179,7 @@ mfinal <- m3
 
 
 
-## Correlation structures for your dataset
+## Correlation structures
 cor_structures <- list(
   COMP   = corCompSymm(form = ~ weekQ | Rat),
   GAUS   = corGaus(form = ~  weekQ | Rat),
@@ -197,7 +199,7 @@ M <- list()
 for (nm in names(cor_structures)) {
   M[[nm]] <- lme(
     y ~ weekQ + Trt + weekQ:Trt + y0 ,
-    random = ~ 1 | Rat,
+    random = ~ 1 + weekQ | Rat,
     correlation = cor_structures[[nm]],
     data = rats,
     control = lmeControl(msMaxIter = 500000, niterEM = 50)
