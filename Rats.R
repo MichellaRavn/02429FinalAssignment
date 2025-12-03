@@ -9,6 +9,7 @@ library(lattice)
 library(predictmeans) #residplot
 library(plyr)
 library(dplyr)
+library(gridExtra)
 
 #####################################################
 # Cleaning data
@@ -45,6 +46,7 @@ rats <- rats_long
 # make treatment and cage factors 
 rats$Trt <- as.factor(rats$Trt)
 rats$Rat <- as.factor(rats$Rat)
+rats$y <- as.numeric(rats$y)
 
 # Data structure
 str(rats) 
@@ -174,27 +176,17 @@ mfinal <- m3
 
 
 
-emmeans(mfinal,"Trt")
 
-
-
-
-
-
-## Checking correlation structures
-
-# Define correlation structures
+## Correlation structures for your dataset
 cor_structures <- list(
-  COMP   = corCompSymm(form = ~ weekF | Rats),      # OK: constant correlation
-  GAUS   = corGaus(form = ~ weekF | Rats),     # OK: continuous spatial
-  EXP    = corExp(form = ~ weekF | Rats),      # OK: continuous spatial
-  AR1    = corAR1(form = ~ weekF | Rats),      # OK: discrete AR(1), order only
-  CAR1   = corCAR1(form = ~ weekF | Rats),     # OK: continuous-time AR(1)
-  LIN    = corLin(form = ~ weekF | Rats),       # OK: continuous spatial
-  # ARMA   = corARMA(form = ~ weekF | Rats, p=1,q=1),  # FAIL: requires equally spaced time
-  #SYMM   = corSymm(form = ~ weekF | Rats)          # FAIL: covariate must be 1,2,...,T
-  RATIO  = corRatio(form = ~ weekF | Rats),          # FAIL: zero distances not allowed
-  SPHER  = corSpher(form = ~ weekF | Rats)           # FAIL: zero distances not allowed
+  COMP   = corCompSymm(form = ~ weekQ | Rat),
+  GAUS   = corGaus(form = ~  weekQ | Rat),
+  EXP    = corExp(form = ~ weekQ | Rat),
+  AR1    = corAR1(form = ~  weekQ | Rat),
+  CAR1   = corCAR1(form = ~ weekQ | Rat),
+  LIN    = corLin(form = ~ weekQ | Rat),
+  RATIO  = corRatio(form = ~ weekQ | Rat),
+  SPHER  = corSpher(form = ~ weekQ | Rat)
 )
 
 
@@ -204,18 +196,61 @@ M <- list()
 
 for (nm in names(cor_structures)) {
   M[[nm]] <- lme(
-    logph ~ logmin * treatm,
-    random = ~1 | pigno,
+    y ~ weekQ + Trt + weekQ:Trt + y0 ,
+    random = ~ 1 | Rat,
     correlation = cor_structures[[nm]],
-    data = dfph,
-    control = lmeControl(msMaxIter = 200, niterEM = 50)
+    data = rats,
+    control = lmeControl(msMaxIter = 500000, niterEM = 50)
   )
 }
+
 
 # Check names
 names(M)
 
 
+
+V <- list()
+
+for (nm in names(M)) {
+  
+  var_obj <- Variogram(M[[nm]], form = ~ weekQ | Rat, data = rats)
+  
+  V[[nm]] <- plot(
+    var_obj,
+    main = paste("Variogram -", nm),
+    pch = 16,
+    cex = 1,
+    ylim = c(0, 2),
+    xlab = "Distance (week)"
+  )
+}
+
+
+# Display all in a grid
+grid.arrange(
+  grobs = V,
+  ncol = 4
+)
+
+
+
+# --- Compare structures ------------------------------------------------------
+
+anova(M3, M5, M6)
+
+residplot(M3)
+residplot(M5)
+residplot(M6)
+
+anova(update(M3, method="ML"),
+      update(M5, method="ML"),
+      update(M6, method="ML"))
+
+summary(M3)
+summary(M6)
+
+emmeans(M3, "treatm", by="minF", data=dfph)
 
 
 
@@ -271,4 +306,30 @@ p2 <- ggplot(mns, aes(x = weekQ, y = y, group = Trt, colour = Trt)) +
   theme_bw()
 
 p1 / p2
+
+
+
+
+
+emmeans(mfinal,"Trt")
+
+
+
+
+
+# Multiple testing and CI plots
+library(multcomp)
+mult_Trt <- glht(m3, linfct = mcp(Trt = "Tukey")) #adjusted p-values by Tukey´s method
+
+summary(mult_Trt)
+
+
+
+
+par(mfrow=c(1,1))
+par(mai=c(1,.65,1.25,.5)) # Use sufficiently large upper margin
+plot(mult_Trt, col=2:7)
+par(mai=c(1,1,1,1))
+
+
 

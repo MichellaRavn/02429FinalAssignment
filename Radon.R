@@ -6,7 +6,9 @@ library(patchwork)
 library(lmerTest)
 library(MASS)
 library(lattice)
+library(performance)
 library(predictmeans) #residplot
+library(emmeans)
 
 #####################################################
 # Cleaning data
@@ -181,25 +183,38 @@ ggplot() +
 
 # Plotting means
 # County names and regions aligned to tapply indexing for plotting
-county_names <- tapply(df$county.name, df$county, function(x) x[1])
+county_names <- unique(df$county.name)#tapply(df$county.name, df$county, function(x) x[1])
 county_regions <- tapply(df$region, df$county, function(x) x[1])
 
 plot_df <- data.frame(
-  county.name = county_names,
-  region = county_regions,
+  county = county_names,
+  region = factor(county_regions, levels = region.order),
   mean_y = as.numeric(cty.mns),
-  stringsAsFactors = FALSE
+  sd_y   = as.numeric(cty.sds.sep)
 )
+plot_df$lower <- plot_df$mean_y - plot_df$sd_y
+plot_df$upper <- plot_df$mean_y + plot_df$sd_y
 
-plot_df$region <- factor(plot_df$region, levels = region.order)
+
+
+
 plot_df <- plot_df[order(plot_df$region, plot_df$mean_y), ]
 
-plot_df$county.order <- factor(plot_df$county.name,
-                               levels = plot_df$county.name)
+plot_df$county.order <- factor(plot_df$county, levels = plot_df$county)
 
 
 ggplot(plot_df, aes(x = county.order, y = mean_y, color = region)) +
+  
+  # Error bars first (behind points)
+  geom_errorbar(aes(ymin = lower, ymax = upper),
+                width = 0.0,       # no horizontal bar
+                color = "black",   # or same color as points if preferred
+                alpha = 0.6,       # slightly transparent
+                linewidth = 0.5) +
+  
+  # Points on top
   geom_point(size = 3) +
+  
   scale_color_manual(values = region_colors) +
   labs(
     title = "Observed mean radon per county",
@@ -325,9 +340,7 @@ p_box <- ggplot(df, aes(x = x, y = y, fill = x)) +
 
 p_box / p_strip
 
-#####################################################
-# Modelling
-#####################################################
+#### Modelling
 
 # Testing basement for personal interest
 m0 <- lmer(y ~ u:x + u + x + ( 1 | county), data = dfsub) 
@@ -335,10 +348,13 @@ mb <- lmer(y ~ u:b + u + b + ( 1 | county), data = dfsub)
 mbg <- lmer(y ~ u:bg+ u + bg+( 1 | county), data = dfsub)
 m1 <- lmer(y ~ u:x + u + I(u^2) + x + ( 1 | county), data = dfsub)
 
+mrs<-lmer(y ~ u:x + u + x + ( u | county), data = dfsub) 
+
 ranova(m0)
 ranova(mb)
 ranova(mbg)
 ranova(m1)
+ranova(mrs)
 
 m0 <- update(m0,REML=F)
 mb <- update(mb,REML=F)
@@ -350,13 +366,13 @@ BIC(m0, mb, mbg, m1)
 
 anova(mbg,mb) # Prefer mbg
 anova(mbg,m0) # Prefer m0 (basement no effect)
-anova(m0,m3) # Prefer m0
+anova(m0,m1) # Prefer m0
 
 
 residplot(m0) 
 residplot(mb) 
 residplot(mbg) 
-residplot(m2) 
+residplot(m1) 
 
 # Moving on with m0, full data
 m0 <- lmer(y ~ u*x + u + x + ( 1 | county), data = df, REML=TRUE) 
@@ -366,6 +382,12 @@ drop1(m0) # interaction significant
 
 AIC(m0)
 BIC(m0)
+r2_nakagawa(m0)
+var_county   <- as.numeric(VarCorr(m0)$county)          # 9.323
+var_resid <- sigma(m0)^2                         # 22.875
+icc <- var_county / (var_county + var_resid)
+icc
+
 
 m0<-update(m0,REML=T)
 summary(m0) 
@@ -406,8 +428,8 @@ param_table <- data.frame(
 
 param_table
 
-library(performance)
-r2_nakagawa(m0)
+
+
 
  ## 0.0399 ~ 4% of variance described by random effect of county
 
@@ -415,53 +437,219 @@ r2_nakagawa(m0)
 
 ############## Results plots 
 
-df$pred_y <- predict(m0)
-df$pred_y_fix <- predict(m0,re.from=NA)
-df$pred_y_rand <- df$pred_y - df$pred_y_fix
-(cty.mns.pred = tapply(df$pred_y,df$county,mean))
-
 plot_df <- data.frame(
-  county.name = county_names,
-  region = county_regions,
+  county = county_names,
+  region = factor(county_regions, levels = region.order),
   mean_y = as.numeric(cty.mns),
-  mean_pred_y = as.numeric(cty.mns.pred),
-  stringsAsFactors = FALSE
+  sd_y   = as.numeric(cty.sds.sep)
 )
 
-plot_df$region <- factor(plot_df$region, levels = region.order)
-plot_df <- plot_df[order(plot_df$region, plot_df$mean_y), ]
+# Mixed predictions
+df$pred_y <- predict(m0)
+# Fixed predictions
+df$pred_y_fix <- predict(m0,re.form=NA)
+# Random effect
+df$pred_y_rand <- df$pred_y - df$pred_y_fix
 
-plot_df$county.order <- factor(plot_df$county.name,
-                               levels = plot_df$county.name)
+(cty.mns.pred = tapply(df$pred_y,df$county,mean))
+plot_df$mean_pred_y <- as.numeric(cty.mns.pred)
+
+(cty.new.mns.pred = tapply(df$pred_y_fix,df$county,mean))
+plot_df$mean_pred_y_fix <- as.numeric(cty.new.mns.pred)
+
+# function: return county-level predicted means
+f_fun <- function(fit) tapply(predict(fit), df$county, mean)
+
+set.seed(123)
+bb <- bootMer(m0, f_fun, nsim = 500, type = "parametric")
+
+# matrix 2 x n_counties: rows = c(0.025, 0.975), cols = counties IN THE SAME ORDER as tapply
+boot_ci <- apply(bb$t, 2, quantile, probs = c(0.025, 0.975))
+
+# same trick you used for mean_pred_y: rely on the order
+plot_df$pred_lower <- as.numeric(boot_ci[1, ])
+plot_df$pred_upper <- as.numeric(boot_ci[2, ])
+
+
+
+plot_df <- plot_df[order(plot_df$region, plot_df$mean_y), ]
+plot_df$county.order <- factor(plot_df$county, levels = plot_df$county)
 
 ggplot(plot_df, aes(x = county.order)) +
   
-  # Observed means (already in your plot)
+  # Error bar for observed
+  #geom_errorbar(
+  #  aes(ymin = lower, ymax = upper, color = region),
+  #  width = 0, alpha = 0.6, linewidth = 0.5
+  #) +
+  
+  geom_hline(yintercept = mean(cty.mns), linetype = "dashed", linewidth = 0.5) +
+  
+  # Observed points (region colors)
   geom_point(aes(y = mean_y, color = region), size = 3) +
   
-  # Predicted means (new)
-  geom_point(aes(y = mean_pred_y), color = "red", size = 1) +
+  # Predicted mixed (RED) – color mapped!
+  geom_point(
+    aes(y = mean_pred_y, color = "Predicted mixed"),
+    size = 2
+  ) +
   
-  scale_color_manual(values = region_colors) +
+  geom_errorbar(
+    aes(ymin = pred_lower, ymax = pred_upper, color = "Predicted mixed"),
+    width = 0, alpha = 0.4
+  ) +
+  
+  
+  # Predicted fixed (BLACK) – color mapped!
+  #geom_point(
+  #  aes(y = mean_pred_y_fix, color = "Predicted fixed"),
+  #  size = 1.5
+  #) +
+  
+  # One single merged legend
+  scale_color_manual(
+    name = "Legend",
+    values = c(
+      region_colors,
+      "Predicted mixed"  = "red",
+      "Predicted fixed"  = "black"
+    )
+  ) +
+  
   labs(
     title = "Observed and predicted mean radon per county",
     x = "County",
     y = "Mean log radon"
   ) +
+  
   theme_bw() +
   theme(
     axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
   )
 
+
+
+
 ### Emmeans
 
-u_vals <- quantile(df$u, probs = c(0.25, 0.50, 0.75))
+# 25%, 50%, 75% quantiles
+u_vals <-quantile(df$u, probs = c(0.25, 0.50, 0.75))
 
-emmeans_radon <- emmeans(m0, "x", by = "u", at = list(u = u_vals))
-plot(emmeans_radon)
+# emmeans table
+em <- emmeans(m0, "x", by = "u", at = list(u = u_vals))
+em
 
-plot(exp(emmeans_radon), horizontal = FALSE, emmGrid = TRUE) +
-  ggtitle("Predicted radon concentration") +
-  xlab("Predicted radon concentration") +
-  ylab("Floor (x)")
+# Back-transform to radon scale
+em_bt <- transform(
+  as.data.frame(em),
+  em_bt      = exp(emmean),
+  lower_bt   = exp(lower.CL),
+  upper_bt   = exp(upper.CL)
+)
+
+em_bt
+
+
+emmip(m0,x ~ u, at = list(u = u_vals) , CIs = TRUE) + theme(legend.position="top")+
+  #ggtitle("Emmeans interaction")+
+  ylab("Log radon") + 
+  labs(color="Floor") + 
+  scale_color_manual(values=floor_colors)
+
+emtrends(m0, pairwise ~x, var="u",infer=TRUE)  
+# low change in radon c for higher val of u, 
+# non significant slope for x=1
+# significant difference
+
+
+slopes <- emtrends(m0, ~ x, var = "u")  # dy/du
+
+slopes_df <- as.data.frame(slopes)
+
+ggplot(slopes_df, aes(x = x, y = u.trend)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.1) +
+  labs(
+    title = "Estimated slope",
+    x = "Floor (x)",
+    y = "u slope (dy/du)"
+  ) +
+  theme_bw()
+
+
+
+
+
+### New county prediction example
+
+new_data <- data.frame(
+  u      = -1.2,
+  x      = factor(0, levels = levels(df$x)),
+  county = NA     # not in data -> random effect = 0 -> using re.form = NA
+)
+
+# Population‐average prediction (new county)
+pred_log  <- predict(m0, newdata = new_data, re.form = NA) # E(d(j))=0
+pred_rad  <- exp(pred_log)
+pred_rad
+
+
+
+
+
+
+### Estimated intercept
+# Random effects with conditional variance
+re  <- ranef(m0, condVar = TRUE) # condVar to get posterior variance
+
+# random intercept deviations (b0_j)
+ri  <- re$county
+ri$county <- rownames(ri)
+u_cty <- tapply(df$u, df$county, mean)   # same value of u in each county
+ri$u <- u_cty[ri$county]
+
+
+# intercept
+beta0 <- fixef(m0)["(Intercept)"]
+alpha<- fixef(m0)["u"]
+
+# county-specific regression intercepts = mu + alpha * u + b0_j
+ri$intercept <- beta0 + ri[,"(Intercept)"] + alpha * ri$u
+
+# extract posterior variances for b0_j, store as standard error
+post_var <- attr(ranef(m0, condVar = TRUE)$county, "postVar")[1,1,]
+ri$SE <- sqrt(post_var)
+ri$lower <- ri$intercept - qnorm(1-(0.05/2)) * ri$SE
+ri$upper <- ri$intercept + qnorm(1-(0.05/2)) * ri$SE
+
+# adding region for coloring 
+ri$region <- df$region[ match(ri$county, df$county) ]
+ri$region <- factor(ri$region, levels = region.order)
+
+
+ggplot(ri, aes(x = u, y = intercept, color = region)) +
+  
+  # error bars first (behind points)
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0, alpha = 0.6) +
+  
+  # colored points
+  geom_point(size = 2) +
+  
+  geom_abline(
+    intercept = beta0, slope = alpha,
+    color     = "black", alpha=0.4, linewidth = 0.2) +
+  
+  scale_color_manual(values = region_colors, name = "Region") +
+  
+  labs(
+    title = "Estimated intercepts for counties, x=0",
+    x = "County uranium (u)",
+    y = "Estimated intercept (log radon)"
+  ) +
+  theme_bw()
+
+
+
+
+
 
