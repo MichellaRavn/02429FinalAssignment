@@ -75,6 +75,7 @@ rats_plot <- bind_rows(
 # Individual profiles
 p1 <- ggplot(rats_plot, aes(x = weekQ, y = y, group = Rat, colour = Trt)) +
   geom_line(alpha = 0.8) +
+  geom_point(size = 0.7) +
   labs(
     title = "Weight over time",
     x = "Week",
@@ -97,7 +98,7 @@ p2 <- ggplot(mns, aes(x = weekQ, y = y, group = Trt, colour = Trt)) +
   ) +
   theme_bw()
 
-p1 / p2
+p1 | p2
 
 
 ###### Log profiles
@@ -317,7 +318,7 @@ plot(predict(m3, level=1),predict(m5, level=1), pch=20,
 abline(0,1, col="red")
 
 plot(predict(m3, level=1),exp(predict(m7, level=1)), pch=20,
-     main = "m3 log vs m7 log poly2")
+     main = "m3 random slope vs m7 log poly2")
 abline(0,1, col="red")
 
 plot(predict(m3, level=1),exp(predict(m8, level=1)), pch=20,
@@ -327,6 +328,9 @@ abline(0,1, col="red")
 
 
 ### Post hoc
+round(fixef(m3),digits=2)
+ci_m3 <- confint(m3, level = 0.95)
+round(ci_m3, 2)
 
 # Predictions
 # Mixed predictions
@@ -359,47 +363,51 @@ p2 +   geom_line(data = newdat,
 
 
 
-par(mfrow=c(1,1))
-with(rats,{
-  plot(weekQ, y, las=1,xlab="week",ylab="weight")
-  for(irat in 1:27) lines(weekQ[Rat==irat], y[Rat==irat],
-                          col=irat-1,lty=irat-1)
-})
-lines(rats$weekQ[1:4],rats$m3[1:4], col="red", lty=1, lwd=2)
-
-par(mfrow=c(1,1))
-with(rats,{
-  plot(weekQ, y, las=1,xlab="week",ylab="weight")
-  for(irat in 1:27) lines(weekQ[Rat==irat], y[Rat==irat],
-                          col=irat-1,lty=irat-1)
-})
-lines(rats$weekQ[1:4],rats$m7[1:4], col="red", lty=1, lwd=2)
+### Emmeans
 
 
+wvals <- c(1,2.5,4)
 
-emmeans(m3, "Trt", by="weekQ", data=rats)
+# emmeans table
+em <- emmeans(m3, "Trt", by = "weekQ", at = list(weekQ=wvals))
+em
 
-
-
-
-
-
-
+pairs(emmeans(m3, ~ Trt), adjust = "tukey")
 
 
+# For log
+#em7 <- emmeans(m7, "Trt", by = "weekQ", at = list(weekQ=wvals))
+#em7
+
+# Back-transform to radon scale
+#em_bt <- transform(
+#  as.data.frame(em7),
+#  em_bt      = exp(emmean),
+#  lower_bt   = exp(lower.CL),
+#  upper_bt   = exp(upper.CL)
+#)
+
+#em_bt
+
+emmip(m3,Trt ~ weekQ, at = list(weekQ = wvals) , CIs = TRUE) + theme(legend.position="top")+
+  #ggtitle("Emmeans interaction")+
+  ylab("Weight") + 
+  labs(color="Trt") 
+
+emtrends(m3, pairwise ~Trt, var="weekQ",infer=TRUE, adjust="Tukey")  
 
 
-
-
-
-
-
-
-# Multiple testing and CI plots
-library(multcomp)
-mult_Trt <- glht(m3, linfct = mcp(Trt = "Tukey")) #adjusted p-values by Tukey´s method
-
-summary(mult_Trt)
+slopes <- emtrends(m3, ~ Trt, var = "weekQ")  
+slopes_df <- as.data.frame(slopes)
+ggplot(slopes_df, aes(x = Trt, y = weekQ.trend)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.1) +
+  labs(
+    title = "Estimated slope",
+    x = "Trt",
+    y = "Weight slope (dy/dweek)"
+  ) +
+  theme_bw()
 
 
 

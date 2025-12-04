@@ -536,7 +536,7 @@ ggplot(plot_df, aes(x = county.order)) +
 u_vals <-quantile(df$u, probs = c(0.25, 0.50, 0.75))
 
 # emmeans table
-em <- emmeans(m0, "x", by = "u", at = list(u = u_vals))
+em <- emmeans(m0, "x", by = "u", at = list(u = u_vals),adjust="tukey")
 em
 
 # Back-transform to radon scale
@@ -556,9 +556,9 @@ emmip(m0,x ~ u, at = list(u = u_vals) , CIs = TRUE) + theme(legend.position="top
   labs(color="Floor") + 
   scale_color_manual(values=floor_colors)
 
-emtrends(m0, pairwise ~x, var="u",infer=TRUE)  
+emtrends(m0, pairwise ~x, var="u",infer=TRUE,adjust="tukey")
 # low change in radon c for higher val of u, 
-# non significant slope for x=1
+# significant slopes, strong evidence for x=0
 # significant difference
 
 
@@ -575,8 +575,6 @@ ggplot(slopes_df, aes(x = x, y = u.trend)) +
     y = "u slope (dy/du)"
   ) +
   theme_bw()
-
-
 
 
 
