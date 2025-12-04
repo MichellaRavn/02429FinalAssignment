@@ -10,6 +10,7 @@ library(predictmeans) #residplot
 library(plyr)
 library(dplyr)
 library(gridExtra)
+library(emmeans)
 
 #####################################################
 # Cleaning data
@@ -99,6 +100,52 @@ p2 <- ggplot(mns, aes(x = weekQ, y = y, group = Trt, colour = Trt)) +
 p1 / p2
 
 
+###### Log profiles
+
+#baseline <- rats |>
+#  distinct(Rat, Trt, y0) |>
+#  mutate(
+#    weekQ = 0,
+#    weekF = factor(0),
+#    logy     = log(y0)
+#  )
+
+# for plotting
+#rats_plot <- bind_rows(
+#  rats[, c("Rat", "Trt", "weekQ", "weekF", "logy")],
+#  baseline[, c("Rat", "Trt", "weekQ", "weekF", "logy")]
+#)
+
+
+# Individual profiles
+#p1 <- ggplot(rats_plot, aes(x = weekQ, y = logy, group = Rat, colour = Trt)) +
+#  geom_line(alpha = 0.8) +
+#  labs(
+#    title = "Log weight over time",
+#    x = "Week",
+#    y = "Log weight"
+#  ) +
+#  theme_bw()
+#p1
+
+# Mean profiles 
+#mns <- rats_plot |>
+#  group_by(Trt, weekQ) |>
+#  summarise(y = mean(logy), .groups = "drop")
+
+#p2 <- ggplot(mns, aes(x = weekQ, y = y, group = Trt, colour = Trt)) +
+#  geom_line(size = 1) +
+#  geom_point(size = 2) +
+#  labs(
+#    title = "Mean log weight per treatment",
+#    x = "Week",
+#    y = "Mean log weight"
+#  ) +
+#  theme_bw()
+
+#p1 / p2
+
+
 # I. Fit a random effects model using function lmer() from lme4/lme4Test
 #    Covariance with structure corresponding to Compound symmetry.
 
@@ -176,16 +223,17 @@ r2_nakagawa(m8)
 mfinal <- m3
 
 
-
-
+# we have a random slope, so many correlation structures fail
+# Enotes only use random intercept (only exp used for random slope?)
+# 
 
 ## Correlation structures
 cor_structures <- list(
   COMP   = corCompSymm(form = ~ weekQ | Rat),
   GAUS   = corGaus(form = ~  weekQ | Rat),
   EXP    = corExp(form = ~ weekQ | Rat),
-  AR1    = corAR1(form = ~  weekQ | Rat),
-  CAR1   = corCAR1(form = ~ weekQ | Rat),
+  AR1    = corAR1(form = ~  weekQ | Rat), # Serial, order 1
+  CAR1   = corCAR1(form = ~ weekQ | Rat), # Continous AR1
   LIN    = corLin(form = ~ weekQ | Rat),
   RATIO  = corRatio(form = ~ weekQ | Rat),
   SPHER  = corSpher(form = ~ weekQ | Rat)
@@ -197,12 +245,12 @@ cor_structures <- list(
 M <- list()
 
 for (nm in names(cor_structures)) {
-  M[[nm]] <- lme(
-    y ~ weekQ + Trt + weekQ:Trt + y0 ,
-    random = ~ 1 + weekQ | Rat,
+  M[[nm]] <- try(lme(
+    logy ~ weekQ + Trt + weekQ:Trt + y0 ,
+    random = ~ 1  | Rat, # random slope does not converge
     correlation = cor_structures[[nm]],
     data = rats,
-    control = lmeControl(msMaxIter = 500000, niterEM = 50)
+    control = lmeControl(msMaxIter = 5000, niterEM = 50))
   )
 }
 
@@ -224,6 +272,7 @@ for (nm in names(M)) {
     pch = 16,
     cex = 1,
     ylim = c(0, 2),
+    smooth = FALSE,
     xlab = "Distance (week)"
   )
 }
@@ -235,85 +284,112 @@ grid.arrange(
   ncol = 4
 )
 
+# With only three datapoints it is hard to tell
 
+# This breaks, does not converge:
+#M8<-lme(logy ~ weekQ + Trt + weekQ:Trt + y0 , random = ~ 1 + weekQ  | Rat, 
+#        correlation = corExp(form = ~ weekQ | Rat), data = rats,
+#        control = lmeControl(msMaxIter = 500000, niterEM = 50))
+  
 
 # --- Compare structures ------------------------------------------------------
 
-anova(M3, M5, M6)
 
-residplot(M3)
-residplot(M5)
-residplot(M6)
+anova(M[[1]],M[[2]],M[[3]],M[[6]],M[[7]])
+# Not really better AIC or BIC
 
-anova(update(M3, method="ML"),
-      update(M5, method="ML"),
-      update(M6, method="ML"))
+m9<-M[[2]]
+      
+anova(m3,m9)
 
-summary(M3)
-summary(M6)
-
-emmeans(M3, "treatm", by="minF", data=dfph)
-
+residplot(M[[1]])
+residplot(M[[2]])
+residplot(M[[3]])
+residplot(M[[6]])
+residplot(M[[7]])
 
 
 
+#m3=m5=m8?
+par(mfrow=c(1,3))
+plot(predict(m3, level=1),predict(m5, level=1), pch=20,
+     main = "m3 random slope vs m5 poly3")
+abline(0,1, col="red")
+
+plot(predict(m3, level=1),exp(predict(m7, level=1)), pch=20,
+     main = "m3 log vs m7 log poly2")
+abline(0,1, col="red")
+
+plot(predict(m3, level=1),exp(predict(m8, level=1)), pch=20,
+     main = "m3 random slope vs m8 log poly3")
+abline(0,1, col="red")
+# m3 seems just as fine as the complicated m8
 
 
+### Post hoc
 
+# Predictions
+# Mixed predictions
+rats$m3 <- predict(m3)
+# Fixed predictions
+rats$m3_fix <- predict(m3,re.form=NA)
 
+# Mixed predictions
+rats$m7 <- exp(predict(m7))
+# Fixed predictions
+rats$m7_fix <- exp(predict(m7,re.form=NA))
 
+p1 +  geom_line(data = rats,
+            aes(x = weekQ, y = m3_fix, group = Rat, colour = Trt),
+            linewidth = 1.1, alpha = 0.7)
 
-
-
-
-baseline <- rats |>
-  distinct(Rat, Trt, y0) |>
-  mutate(
-    weekQ = 0,
-    weekF = factor(0),
-    logy     = log(y0)
-  )
-
-# for plotting
-rats_plot <- bind_rows(
-  rats[, c("Rat", "Trt", "weekQ", "weekF", "logy")],
-  baseline[, c("Rat", "Trt", "weekQ", "weekF", "logy")]
+newdat <- expand.grid(
+  weekQ = 0:4,
+  Trt = levels(rats$Trt),
+  y0 = mean(rats$y0),
+  logy0 = mean(rats$logy0)
 )
 
+newdat$pred_m3 <- predict(m3, newdata = newdat, re.form = NA)
+newdat$pred_m7 <- exp(predict(m7, newdata = newdat, re.form = NA))
 
-# Individual profiles
-p1 <- ggplot(rats_plot, aes(x = weekQ, y = logy, group = Rat, colour = Trt)) +
-  geom_line(alpha = 0.8) +
-  labs(
-    title = "Log weight over time",
-    x = "Week",
-    y = "Log weight"
-  ) +
-  theme_bw()
-p1
-
-# Mean profiles 
-mns <- rats_plot |>
-  group_by(Trt, weekQ) |>
-  summarise(y = mean(logy), .groups = "drop")
-
-p2 <- ggplot(mns, aes(x = weekQ, y = y, group = Trt, colour = Trt)) +
-  geom_line(size = 1) +
-  geom_point(size = 2) +
-  labs(
-    title = "Mean log weight per treatment",
-    x = "Week",
-    y = "Mean log weight"
-  ) +
-  theme_bw()
-
-p1 / p2
+p2 +   geom_line(data = newdat,
+            aes(x = weekQ, y = pred_m3, colour = Trt, group = Trt),
+            linewidth = 0.8, alpha=0.8)
 
 
 
+par(mfrow=c(1,1))
+with(rats,{
+  plot(weekQ, y, las=1,xlab="week",ylab="weight")
+  for(irat in 1:27) lines(weekQ[Rat==irat], y[Rat==irat],
+                          col=irat-1,lty=irat-1)
+})
+lines(rats$weekQ[1:4],rats$m3[1:4], col="red", lty=1, lwd=2)
+
+par(mfrow=c(1,1))
+with(rats,{
+  plot(weekQ, y, las=1,xlab="week",ylab="weight")
+  for(irat in 1:27) lines(weekQ[Rat==irat], y[Rat==irat],
+                          col=irat-1,lty=irat-1)
+})
+lines(rats$weekQ[1:4],rats$m7[1:4], col="red", lty=1, lwd=2)
 
 
-emmeans(mfinal,"Trt")
+
+emmeans(m3, "Trt", by="weekQ", data=rats)
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
