@@ -97,8 +97,9 @@ p2 <- ggplot(mns, aes(x = weekQ, y = y, group = Trt, colour = Trt)) +
     y = "Mean weight (gram)"
   ) +
   theme_bw()
+dev.off()  #
 
-p1 | p2
+p1 / p2
 
 
 ###### Log profiles
@@ -223,7 +224,6 @@ r2_nakagawa(m8)
 # However acceptable results from m3 in residplot, thus recommending for final model
 mfinal <- m3
 
-
 # we have a random slope, so many correlation structures fail
 # Enotes only use random intercept (only exp used for random slope?)
 # 
@@ -291,13 +291,17 @@ grid.arrange(
 #M8<-lme(logy ~ weekQ + Trt + weekQ:Trt + y0 , random = ~ 1 + weekQ  | Rat, 
 #        correlation = corExp(form = ~ weekQ | Rat), data = rats,
 #        control = lmeControl(msMaxIter = 500000, niterEM = 50))
-  
+
+
+
 
 # --- Compare structures ------------------------------------------------------
 
 
 anova(M[[1]],M[[2]],M[[3]],M[[6]],M[[7]])
 # Not really better AIC or BIC
+# Even though AR1 or exp might be theoretically most correct because of time dist dependence
+
 
 m9<-M[[2]]
       
@@ -310,7 +314,7 @@ residplot(M[[6]])
 residplot(M[[7]])
 
 
-
+# comparing model fit
 #m3=m5=m8?
 par(mfrow=c(1,3))
 plot(predict(m3, level=1),predict(m5, level=1), pch=20,
@@ -325,6 +329,43 @@ plot(predict(m3, level=1),exp(predict(m8, level=1)), pch=20,
      main = "m3 random slope vs m8 log poly3")
 abline(0,1, col="red")
 # m3 seems just as fine as the complicated m8
+
+# Comparing fitted vs observed
+par(mfrow=c(2,4))
+plot(predict(m1, level=1),rats$y, pch=20,
+     main = "m1 vs observed")
+abline(0,1, col="red")
+plot(predict(m2, level=1),rats$y, pch=20,
+     main = "m2 factor vs observed")
+abline(0,1, col="red")
+plot(predict(m3, level=1),rats$y, pch=20,
+     main = "m3 random slope vs observed")
+abline(0,1, col="red")
+plot(predict(m4, level=1),rats$y, pch=20,
+     main = "m3 random slope poly 2 vs observed")
+abline(0,1, col="red")
+plot(predict(m5, level=1),rats$y, pch=20,
+     main = "m5 random slope poly 3 vs observed")
+abline(0,1, col="red")
+plot(exp(predict(m6, level=1)),rats$y, pch=20,
+     main = "m6 random slope log vs observed")
+abline(0,1, col="red")
+plot(exp(predict(m6, level=1)),rats$y, pch=20,
+     main = "m6 random slope log poly 2 vs observed")
+abline(0,1, col="red")
+plot(exp(predict(m6, level=1)),rats$y, pch=20,
+     main = "m6 random slope log poly 3 vs observed")
+abline(0,1, col="red")
+
+
+
+
+## BLUPS 
+
+dotplot(ranef(m3, condVar = TRUE),
+        strip = FALSE,
+        ylab = "",
+        scales = list(cex = 0.8))   # smaller labels
 
 
 ### Post hoc
@@ -412,10 +453,6 @@ ggplot(slopes_df, aes(x = Trt, y = weekQ.trend)) +
 
 
 
-par(mfrow=c(1,1))
-par(mai=c(1,.65,1.25,.5)) # Use sufficiently large upper margin
-plot(mult_Trt, col=2:7)
-par(mai=c(1,1,1,1))
 
 
 
