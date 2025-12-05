@@ -10,9 +10,8 @@ library(performance)
 library(predictmeans) #residplot
 library(emmeans)
 
-#####################################################
-# Cleaning data
-#####################################################
+
+## Cleaning data
 
 # Load the data
 df<-read.table("Data/Radon_MN.csv",header = T)
@@ -37,7 +36,6 @@ df$b[df$x == 0] <- 1
 # Drop NaNs for subanalysis
 dfsub <- df[!is.nan(df$b), ]
 
-
 # Creating a new grouping of basement
 dfsub$bg<- ifelse(
   dfsub$b == 1 & dfsub$x == 0, "MB",
@@ -50,9 +48,9 @@ df$b <- as.factor(df$b)
 # Overview of county (un)balance (sample sizes)
 table(df$county)
 
-#####################################################
-# Exploratory plots
-#####################################################
+
+## Exploratory plots
+
 
 # Geographic placement of the counties
 SW<-c("ROCK", "NOBLES","JACKSON","COTTONWOOD","MURRAY","PIPESTONE","LINCOLN","LYON","REDWOOD","YELLOW MEDICINE")
@@ -129,6 +127,7 @@ region.order <- c("NW", "N", "NE", "W", "M", "E", "SW", "S", "SE")
 
 # Creating a map plot
 options(tigris_use_cache = TRUE)
+dev.off()   
 
 
 mn_map <- counties(state = "MN", year = 2020)
@@ -140,28 +139,23 @@ names(mn_map)[names(mn_map) == "NAME"] <- "county.name"
 county_region_map <- unique(df[, c("county.name", "region")])
 county_number_map <- unique(df[, c("county.name", "county")])
 
-mn_map_joined <- merge(
-  mn_map,
+mn_map_joined <- merge(mn_map,
   merge(county_region_map, county_number_map, by="county.name"),
   by = "county.name",
-  all.x = TRUE
-)
+  all.x = TRUE)
 
 mn_map_joined$region <- factor(mn_map_joined$region,
                                levels = region.order)
-
-
-
 centroids <- st_centroid(mn_map_joined)
 highlight <- centroids[centroids$county %in% c(36, 37), ]
 
 ggplot() +
   geom_sf(data = mn_map_joined, aes(fill = region), color = "white", size = 0.2) +
   
+  # Uncomment for min/max circles
   #geom_sf(
   #  data = highlight,
   #  color = "black",
-  #  #fill = "red",
   #  size = 5,
   #  shape = 21,
   #  stroke = 1.2
@@ -172,13 +166,11 @@ ggplot() +
     data = centroids,
     aes(label = county),
     size = 3,
-    color = "black"
-  ) +
+    color = "black" ) +
   
   scale_fill_manual(values = region_colors,
                     breaks = region.order ) +
   theme_void()
-
 
 
 # Plotting means
@@ -190,16 +182,11 @@ plot_df <- data.frame(
   county = county_names,
   region = factor(county_regions, levels = region.order),
   mean_y = as.numeric(cty.mns),
-  sd_y   = as.numeric(cty.sds.sep)
-)
+  sd_y   = as.numeric(cty.sds.sep))
+
 plot_df$lower <- plot_df$mean_y - plot_df$sd_y
 plot_df$upper <- plot_df$mean_y + plot_df$sd_y
-
-
-
-
 plot_df <- plot_df[order(plot_df$region, plot_df$mean_y), ]
-
 plot_df$county.order <- factor(plot_df$county, levels = plot_df$county)
 
 
@@ -214,20 +201,15 @@ ggplot(plot_df, aes(x = county.order, y = mean_y, color = region)) +
   
   # Points on top
   geom_point(size = 3) +
+  geom_hline(yintercept = mean(cty.mns), linetype = "dashed", linewidth = 0.5) +
   
   scale_color_manual(values = region_colors) +
   labs(
     title = "Observed mean radon per county",
     x = "County",
-    y = "Mean log radon"
-  ) +
+    y = "Mean log radon") +
   theme_bw() +
-  theme(
-    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
-  )
-
-
-
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
 
 # The given plot about samplesize with a few alterations
 par(mfrow=c(1,1))
@@ -246,8 +228,7 @@ axis(2, seq(0,3), cex.axis=.9, mgp=c(1.5,.5,0))
 # Draw error bars 
 for (j in 1:J){
   lines(rep(sample.size.jittered[j],2),
-        cty.mns[j] + c(-1,1)*cty.sds[j], lwd=.5)
-}
+        cty.mns[j] + c(-1,1)*cty.sds[j], lwd=.5)}
 
 # Adding points after to have error bars behind
 points(sample.size.jittered, cty.mns,
@@ -348,7 +329,8 @@ mb <- lmer(y ~ u:b + u + b + ( 1 | county), data = dfsub)
 mbg <- lmer(y ~ u:bg+ u + bg+( 1 | county), data = dfsub)
 m1 <- lmer(y ~ u:x + u + I(u^2) + x + ( 1 | county), data = dfsub)
 
-mrs<-lmer(y ~ u:x + u + x + ( u | county), data = dfsub) 
+m_rs<-lmer(y ~ u:x + u + x + ( 1 + x | county), data = df) 
+ranova(mrs)
 
 ranova(m0)
 ranova(mb)
@@ -408,7 +390,7 @@ dotplot(ranef(m0, condVar = TRUE),
 
 ## Model parameters
 # Raw
-est  <- fixef(m0)                   # raw estimates
+est  <- fixef(m0)                   
 ci   <- confint(m0, parm = names(est))  # 2.5% and 97.5%
 
 # Back-transform (exp)
@@ -563,7 +545,6 @@ emtrends(m0, pairwise ~x, var="u",infer=TRUE,adjust="tukey")
 
 
 slopes <- emtrends(m0, ~ x, var = "u")  # dy/du
-
 slopes_df <- as.data.frame(slopes)
 
 ggplot(slopes_df, aes(x = x, y = u.trend)) +
@@ -579,7 +560,6 @@ ggplot(slopes_df, aes(x = x, y = u.trend)) +
 
 
 ### New county prediction example
-
 new_data <- data.frame(
   u      = -1.2,
   x      = factor(0, levels = levels(df$x)),
@@ -647,6 +627,34 @@ ggplot(ri, aes(x = u, y = intercept, color = region)) +
   theme_bw()
 
 
+
+
+# New house in known county j
+new_house <- data.frame(
+  county = factor("Clay", levels = levels(df$county)),
+  floor  = 0
+)
+
+# Function for bootMer: one simulated future observation in that county
+fun_new_house_known <- function(fit) {
+  # Conditional mean including the county random effect
+  mu <- predict(fit, newdata = new_house, re.form = NULL)
+  
+  # Add residual noise for a single new house
+  mu + rnorm(1, mean = 0, sd = sigma(fit))
+}
+
+set.seed(2201)
+b_known <- bootMer(
+  m0,
+  FUN   = fun_new_house_known,
+  nsim  = 2000,
+  type  = "parametric"  # refit & re-estimate random effects each time
+)
+
+# 95% prediction interval
+PI_known <- quantile(b_known$t, c(0.025, 0.975))
+PI_known
 
 
 

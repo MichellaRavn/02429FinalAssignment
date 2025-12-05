@@ -1,12 +1,10 @@
 # Libraries
-library(sf)
-library(tigris)
 library(ggplot2)
 library(patchwork)
 library(lmerTest)
 library(MASS)
 library(lattice)
-library(predictmeans) #residplot
+library(predictmeans) 
 library(plyr)
 library(dplyr)
 library(gridExtra)
@@ -154,8 +152,8 @@ p1 / p2
 m1 <- lmer(y ~ weekQ + Trt + weekQ:Trt + y0 + (1 | Rat), data = rats)
 m2 <- lmer(y ~ weekF + Trt + weekF:Trt + y0 + (1 | Rat), data = rats)
 m3 <- lmer(y ~ weekQ + Trt + weekQ:Trt + y0 + (1 + weekQ | Rat), data = rats)
-m4 <- lmer(y ~ I(weekQ^2) + weekQ + Trt + weekQ:Trt + y0 + (1 + weekQ | Rat), data = rats)
-m5 <- lmer(y ~ I(weekQ^3) + I(weekQ^2) + weekQ + Trt + weekQ:Trt + y0 + (1 + weekQ | Rat), data = rats)
+m4 <- lmer(y ~ weekQ^2 + weekQ + Trt + weekQ:Trt + y0 + (1 + weekQ | Rat), data = rats)
+m5 <- lmer(y ~ weekQ^3 + weekQ^2 + weekQ + Trt + weekQ:Trt + y0 + (1 + weekQ | Rat), data = rats)
 
 
 ranova(m1)
@@ -173,9 +171,10 @@ residplot(m5) # slightly more flat res vs fit
 
 anova(m1,m2) # prefers m1, time as a numeric
 anova(m1,m3) # prefers m3, random slope
-anova(m1,m4)
-anova(m1,m5) # prefer m5, but stick with m1 for simplicity
+anova(m1,m4) # quadratic is significant
+anova(m1,m5) # prefer m5, cubic - consider complexity
 
+m3 <- update(m3,REML=F)
 drop1(m3) # Interaction significant
 drop1(m5) # Interactions significant
 
@@ -185,7 +184,6 @@ BIC(m1,m2,m3,m4)
 
 m3_lm <- lm(y ~ weekQ + Trt + weekQ:Trt + y0, data = rats)
 m5_lm <- lm(y ~ I(weekQ^3) + I(weekQ^2) + weekQ + Trt + weekQ:Trt + y0, data = rats)
-
 
 # Checking for transformation (no indication, but making sure)
 aux <- boxcox(m5_lm, lambda = seq(-1, 2, by = 0.05))
@@ -210,7 +208,7 @@ anova(m5,m6) # prefer m6
 AIC(m1,m2,m3,m4,m5,m6,m7,m8)
 BIC(m1,m2,m3,m4,m5,m6,m7,m8) # m8 has lowest, but already m6 and m7 are much better
 
-library(performance)
+
 r2_nakagawa(m1)
 r2_nakagawa(m2)
 r2_nakagawa(m3)
@@ -224,9 +222,7 @@ r2_nakagawa(m8)
 # However acceptable results from m3 in residplot, thus recommending for final model
 mfinal <- m3
 
-# we have a random slope, so many correlation structures fail
-# Enotes only use random intercept (only exp used for random slope?)
-# 
+
 
 ## Correlation structures
 cor_structures <- list(
@@ -240,8 +236,6 @@ cor_structures <- list(
   SPHER  = corSpher(form = ~ weekQ | Rat)
 )
 
-
-
 # Fit one model for each structure
 M <- list()
 
@@ -254,15 +248,11 @@ for (nm in names(cor_structures)) {
     control = lmeControl(msMaxIter = 5000, niterEM = 50))
   )
 }
-
-
 # Check names
 names(M)
 
 
-
 V <- list()
-
 for (nm in names(M)) {
   
   var_obj <- Variogram(M[[nm]], form = ~ weekQ | Rat, data = rats)
@@ -330,38 +320,49 @@ plot(predict(m3, level=1),exp(predict(m8, level=1)), pch=20,
 abline(0,1, col="red")
 # m3 seems just as fine as the complicated m8
 
+
 # Comparing fitted vs observed
-par(mfrow=c(2,4))
-plot(predict(m1, level=1),rats$y, pch=20,
-     main = "m1 vs observed")
+par(mfrow=c(2,4), mar=c(3,3,2,1), oma=c(0,0,3,0))  
+
+plot(predict(m1, level=1), rats$y, pch=20,
+     main="m1 ")
 abline(0,1, col="red")
-plot(predict(m2, level=1),rats$y, pch=20,
-     main = "m2 factor vs observed")
+
+plot(predict(m2, level=1), rats$y, pch=20,
+     main="m2")
 abline(0,1, col="red")
-plot(predict(m3, level=1),rats$y, pch=20,
-     main = "m3 random slope vs observed")
+
+plot(predict(m3, level=1), rats$y, pch=20,
+     main="m3 ")
 abline(0,1, col="red")
-plot(predict(m4, level=1),rats$y, pch=20,
-     main = "m3 random slope poly 2 vs observed")
+
+plot(predict(m4, level=1), rats$y, pch=20,
+     main="m4")
 abline(0,1, col="red")
-plot(predict(m5, level=1),rats$y, pch=20,
-     main = "m5 random slope poly 3 vs observed")
+
+plot(predict(m5, level=1), rats$y, pch=20,
+     main="m5")
 abline(0,1, col="red")
-plot(exp(predict(m6, level=1)),rats$y, pch=20,
-     main = "m6 random slope log vs observed")
+
+plot(exp(predict(m6, level=1)), rats$y, pch=20,
+     main="m6")
 abline(0,1, col="red")
-plot(exp(predict(m6, level=1)),rats$y, pch=20,
-     main = "m6 random slope log poly 2 vs observed")
+
+plot(exp(predict(m7, level=1)), rats$y, pch=20,
+     main="m7")
 abline(0,1, col="red")
-plot(exp(predict(m6, level=1)),rats$y, pch=20,
-     main = "m6 random slope log poly 3 vs observed")
+
+plot(exp(predict(m8, level=1)), rats$y, pch=20,
+     main="m8")
 abline(0,1, col="red")
+
+# Add outer title
+mtext("Fitted vs Observed for all 8 models", outer=TRUE, cex=1.5)
 
 
 
 
 ## BLUPS 
-
 dotplot(ranef(m3, condVar = TRUE),
         strip = FALSE,
         ylab = "",
@@ -405,16 +406,11 @@ p2 +   geom_line(data = newdat,
 
 
 ### Emmeans
-
-
 wvals <- c(1,2.5,4)
 
 # emmeans table
 em <- emmeans(m3, "Trt", by = "weekQ", at = list(weekQ=wvals))
 em
-
-pairs(emmeans(m3, ~ Trt), adjust = "tukey")
-
 
 # For log
 #em7 <- emmeans(m7, "Trt", by = "weekQ", at = list(weekQ=wvals))
