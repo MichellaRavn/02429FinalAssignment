@@ -9,6 +9,7 @@ library(lattice)
 library(performance)
 library(predictmeans) #residplot
 library(emmeans)
+library(scales)
 
 
 ## Cleaning data
@@ -127,7 +128,7 @@ region.order <- c("NW", "N", "NE", "W", "M", "E", "SW", "S", "SE")
 
 # Creating a map plot
 options(tigris_use_cache = TRUE)
-dev.off()   
+#dev.off()   
 
 
 mn_map <- counties(state = "MN", year = 2020)
@@ -323,13 +324,15 @@ p_box / p_strip
 
 #### Modelling
 
-# Testing basement for personal interest
+# Testing basement factor
 m0 <- lmer(y ~ u:x + u + x + ( 1 | county), data = dfsub) 
 mb <- lmer(y ~ u:b + u + b + ( 1 | county), data = dfsub)
-mbg <- lmer(y ~ u:bg+ u + bg+( 1 | county), data = dfsub)
+mbg <- lmer(y ~ u:bg+ u + bg + ( 1 | county), data = dfsub)
+
+
 m1 <- lmer(y ~ u:x + u + I(u^2) + x + ( 1 | county), data = dfsub)
 
-m_rs<-lmer(y ~ u:x + u + x + ( 1 + x | county), data = df) 
+mrs<-lmer(y ~ u:x + u + x + ( 1 + x | county), data = df) 
 ranova(mrs)
 
 ranova(m0)
@@ -343,8 +346,8 @@ mb <- update(mb,REML=F)
 mbg <- update(mbg,REML=F)
 
 
-AIC(m0, mb, mbg, m1)
-BIC(m0, mb, mbg, m1)
+AIC(m0, mb, mbg)
+BIC(m0, mb, mbg)
 
 anova(mbg,mb) # Prefer mbg
 anova(mbg,m0) # Prefer m0 (basement no effect)
@@ -414,9 +417,6 @@ param_table
 
 
  ## 0.0399 ~ 4% of variance described by random effect of county
-
-
-
 ############## Results plots 
 
 plot_df <- data.frame(
@@ -438,21 +438,6 @@ plot_df$mean_pred_y <- as.numeric(cty.mns.pred)
 
 (cty.new.mns.pred = tapply(df$pred_y_fix,df$county,mean))
 plot_df$mean_pred_y_fix <- as.numeric(cty.new.mns.pred)
-
-# function: return county-level predicted means
-f_fun <- function(fit) tapply(predict(fit), df$county, mean)
-
-set.seed(123)
-bb <- bootMer(m0, f_fun, nsim = 500, type = "parametric")
-
-# matrix 2 x n_counties: rows = c(0.025, 0.975), cols = counties IN THE SAME ORDER as tapply
-boot_ci <- apply(bb$t, 2, quantile, probs = c(0.025, 0.975))
-
-# same trick you used for mean_pred_y: rely on the order
-plot_df$pred_lower <- as.numeric(boot_ci[1, ])
-plot_df$pred_upper <- as.numeric(boot_ci[2, ])
-
-
 
 plot_df <- plot_df[order(plot_df$region, plot_df$mean_y), ]
 plot_df$county.order <- factor(plot_df$county, levels = plot_df$county)
@@ -583,7 +568,7 @@ re  <- ranef(m0, condVar = TRUE) # condVar to get posterior variance
 # random intercept deviations (b0_j)
 ri  <- re$county
 ri$county <- rownames(ri)
-u_cty <- tapply(df$u, df$county, mean)   # same value of u in each county
+u_cty <- tapply(df$u, df$county, mean)   # same value of u in each county, mean = same level
 ri$u <- u_cty[ri$county]
 
 
@@ -629,33 +614,169 @@ ggplot(ri, aes(x = u, y = intercept, color = region)) +
 
 
 
-# New house in known county j
+
+
+
+######### Prediction for a new house 
+# Range of uranium levels
+
+u_seq <- seq(min(df$u), max(df$u), length.out = 100)
+
 new_house <- data.frame(
-  county = factor("Clay", levels = levels(df$county)),
-  floor  = 0
+  u = u_seq,
+  x = factor(0, levels = levels(df$x)),     
+  county = "newCounty"  #
+)
+new_house_ground <- data.frame(
+  u = u_seq,
+  x = factor(1, levels = levels(df$x)),
+  county = "newCounty"
 )
 
-# Function for bootMer: one simulated future observation in that county
-fun_new_house_known <- function(fit) {
-  # Conditional mean including the county random effect
-  mu <- predict(fit, newdata = new_house, re.form = NULL)
-  
-  # Add residual noise for a single new house
-  mu + rnorm(1, mean = 0, sd = sigma(fit))
+
+# Make predictions E(d_j)=0
+pred0 <- predict(m0, newdata = new_house, re.form = NA)
+pred1 <- predict(m0, newdata = new_house_ground, re.form = NA)
+
+new_house$pred  <- pred0
+new_house_ground$pred <- pred1
+
+
+ggplot(new_house, aes(x = u, y = pred)) +
+  geom_line() +
+  labs(x = "Uranium level", y = "Predicted y", 
+       title = "Predicted exposure for new county")
+
+boot_fun0 <- function(fit) {
+  predict(fit, newdata = new_house, re.form = NA)
 }
 
 set.seed(2201)
-b_known <- bootMer(
-  m0,
-  FUN   = fun_new_house_known,
-  nsim  = 2000,
-  type  = "parametric"  # refit & re-estimate random effects each time
-)
+b0 <- bootMer(m0, boot_fun0, nsim = 500)
 
-# 95% prediction interval
-PI_known <- quantile(b_known$t, c(0.025, 0.975))
-PI_known
+CI0 <- apply(b0$t, 2, quantile, c(0.025, 0.975))
+
+new_house$lwr <- CI0[1, ]
+new_house$upr <- CI0[2, ]
+
+boot_fun1 <- function(fit) {
+  predict(fit, newdata = new_house_ground, re.form = NA)
+}
+
+set.seed(2201)
+b1 <- bootMer(m0, boot_fun1, nsim = 500)
+
+CI1 <- apply(b1$t, 2, quantile, c(0.025, 0.975))
+
+new_house_ground$lwr <- CI1[1, ]
+new_house_ground$upr <- CI1[2, ]
 
 
 
+ggplot(new_house, aes(x = u, y = pred)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lwr, ymax = upr), alpha = 0.2) +
+  labs(x = "Uranium level", y = "Predicted y (CI)",
+       title = "Population-level prediction with bootstrap CIs")
+
+## Back transformed 
+new_house$pred_bt <- exp(new_house$pred)
+new_house$lwr_bt  <- exp(new_house$lwr)
+new_house$upr_bt  <- exp(new_house$upr)
+
+new_house_ground$pred_bt <- exp(new_house_ground$pred)
+new_house_ground$lwr_bt  <- exp(new_house_ground$lwr)
+new_house_ground$upr_bt  <- exp(new_house_ground$upr)
+
+# Back-transform uranium predictor
+new_house$u_orig        <- exp(new_house$u)
+new_house_ground$u_orig <- exp(new_house_ground$u)
+
+ggplot() +
+  
+  # --- Basement (x = 0) CI ribbon ---
+  geom_ribbon(
+    data = new_house,
+    aes(x = u_orig, ymin = lwr_bt, ymax = upr_bt, fill = "0"),
+    alpha = 0.25
+  ) +
+  
+  # --- Basement (x = 0) line ---
+  geom_line(
+    data = new_house,
+    aes(x = u_orig, y = pred_bt, color = "0"),
+    size = 1
+  ) +
+  
+  # --- Ground floor (x = 1) CI ribbon ---
+  geom_ribbon(
+    data = new_house_ground,
+    aes(x = u_orig, ymin = lwr_bt, ymax = upr_bt, fill = "1"),
+    alpha = 0.25
+  ) +
+  
+  # --- Ground floor (x = 1) line ---
+  geom_line(
+    data = new_house_ground,
+    aes(x = u_orig, y = pred_bt, color = "1"),
+    size = 1
+  ) +
+  
+  scale_color_manual(
+    name = " ",
+    values = floor_colors,
+    labels = c("0" = "Basement", "1" = "Ground floor")
+  ) +
+  
+  scale_fill_manual(
+    name = "",
+    values = floor_colors,
+    labels = c("0" = "Basement CI", "1" = "Ground floor CI")
+  ) +
+  
+  labs(
+    x = "Uranium level (ppm)",
+    y = "Predicted radon level (pCi/L)",
+    title = "Predicted radon level for a new county"
+  ) +
+  
+  theme_bw() +
+  theme(
+    plot.title  = element_text(size = 20, face = "bold"),
+    axis.title  = element_text(size = 14),
+    axis.text   = element_text(size = 12),
+    legend.position = "top"
+  )
+
+
+
+
+
+
+
+
+
+
+
+
+
+####### Region as fixed effect 
+
+m1 <- lmer(y ~ u*x + u + x + region + ( 1 | county), data = df, REML=TRUE) 
+summary(m1)
+ranova(m1) # As expected county insignificant because it is explained in region
+
+m2 <- lm(y ~ u*x + region , data = df) 
+
+drop1(m2,test="F")
+
+m3 <- lm(y ~ u + x + region , data = df) 
+
+drop1(m3,test="F")
+
+
+anova(m0,m3)
+
+residplot(m0)
+plot(m3,which=1:4)
 

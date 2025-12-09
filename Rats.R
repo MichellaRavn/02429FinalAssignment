@@ -9,6 +9,7 @@ library(plyr)
 library(dplyr)
 library(gridExtra)
 library(emmeans)
+library(lattice)
 
 #####################################################
 # Cleaning data
@@ -95,9 +96,8 @@ p2 <- ggplot(mns, aes(x = weekQ, y = y, group = Trt, colour = Trt)) +
     y = "Mean weight (gram)"
   ) +
   theme_bw()
-dev.off()  #
 
-p1 / p2
+p1 | p2
 
 
 ###### Log profiles
@@ -434,6 +434,8 @@ emmip(m3,Trt ~ weekQ, at = list(weekQ = wvals) , CIs = TRUE) + theme(legend.posi
 emtrends(m3, pairwise ~Trt, var="weekQ",infer=TRUE, adjust="Tukey")  
 
 
+
+
 slopes <- emtrends(m3, ~ Trt, var = "weekQ")  
 slopes_df <- as.data.frame(slopes)
 ggplot(slopes_df, aes(x = Trt, y = weekQ.trend)) +
@@ -450,5 +452,9 @@ ggplot(slopes_df, aes(x = Trt, y = weekQ.trend)) +
 
 
 
+# Cooks distance
+cd <- cooks.distance(m3)
+plot(cd, type = "h", main = "Cook's distance", xlab = "Observation", ylab = "Distance")
+rats[cd>0.6,]
 
 
