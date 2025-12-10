@@ -612,6 +612,39 @@ ggplot(ri, aes(x = u, y = intercept, color = region)) +
   theme_bw()
 
 
+## At ground level
+# fixed basement effect
+beta_x1 <- fixef(m0)["x1"]   # name may differ: check your model
+alpha_x1 <- fixef(m0)["u:x1"] 
+
+# county-specific mean at x = 1
+ri$intercept_x1 <- (beta0 + beta_x1) + ri$"(Intercept)" + (alpha+alpha_x1)*ri$u #+ ri$b1
+
+# CI for x=1 as well
+ri$lower_x1 <- ri$intercept_x1 - qnorm(.975)*ri$SE
+ri$upper_x1 <- ri$intercept_x1 + qnorm(.975)*ri$SE
+
+
+ggplot(ri, aes(x = u, y = intercept_x1, color = region)) +
+  
+  # error bars first (behind points)
+  geom_errorbar(aes(ymin = lower_x1, ymax = upper_x1), width = 0, alpha = 0.6) +
+  
+  # colored points
+  geom_point(size = 2) +
+  
+  geom_abline(
+    intercept = beta0+beta_x1, slope = alpha+alpha_x1,
+    color     = "black", alpha=0.4, linewidth = 0.2) +
+  
+  scale_color_manual(values = region_colors, name = "Region") +
+  
+  labs(
+    title = "Estimated intercepts for counties, x=1",
+    x = "County uranium (u)",
+    y = "Estimated intercept (log radon)"
+  ) +
+  theme_bw()
 
 
 

@@ -10,6 +10,7 @@ library(dplyr)
 library(gridExtra)
 library(emmeans)
 library(lattice)
+library(performance)
 
 #####################################################
 # Cleaning data
@@ -152,8 +153,8 @@ p1 | p2
 m1 <- lmer(y ~ weekQ + Trt + weekQ:Trt + y0 + (1 | Rat), data = rats)
 m2 <- lmer(y ~ weekF + Trt + weekF:Trt + y0 + (1 | Rat), data = rats)
 m3 <- lmer(y ~ weekQ + Trt + weekQ:Trt + y0 + (1 + weekQ | Rat), data = rats)
-m4 <- lmer(y ~ weekQ^2 + weekQ + Trt + weekQ:Trt + y0 + (1 + weekQ | Rat), data = rats)
-m5 <- lmer(y ~ weekQ^3 + weekQ^2 + weekQ + Trt + weekQ:Trt + y0 + (1 + weekQ | Rat), data = rats)
+m4 <- lmer(y ~ I(weekQ^2) + weekQ + Trt + weekQ:Trt + y0 + (1 + weekQ | Rat), data = rats)
+m5 <- lmer(y ~ I(weekQ^3) + I(weekQ^2) + weekQ + Trt + weekQ:Trt + y0 + (1 + weekQ | Rat), data = rats)
 
 
 ranova(m1)
@@ -171,8 +172,8 @@ residplot(m5) # slightly more flat res vs fit
 
 anova(m1,m2) # prefers m1, time as a numeric
 anova(m1,m3) # prefers m3, random slope
-anova(m1,m4) # quadratic is significant
-anova(m1,m5) # prefer m5, cubic - consider complexity
+anova(m3,m4) # quadratic is insignificant
+anova(m3,m5) # cubic is significant
 
 m3 <- update(m3,REML=F)
 drop1(m3) # Interaction significant
@@ -413,27 +414,33 @@ em <- emmeans(m3, "Trt", by = "weekQ", at = list(weekQ=wvals))
 em
 
 # For log
-#em7 <- emmeans(m7, "Trt", by = "weekQ", at = list(weekQ=wvals))
-#em7
+em7 <- emmeans(m7, "Trt", by = "weekQ", at = list(weekQ=wvals))
+em7
 
 # Back-transform to radon scale
-#em_bt <- transform(
-#  as.data.frame(em7),
-#  em_bt      = exp(emmean),
-#  lower_bt   = exp(lower.CL),
-#  upper_bt   = exp(upper.CL)
-#)
+em_bt <- transform(
+  as.data.frame(em7),
+  em_bt      = round(exp(emmean),2),
+  lower_bt   = round(exp(lower.CL),2),
+  upper_bt   = round(exp(upper.CL),2)
+)
 
-#em_bt
+em_bt
 
 emmip(m3,Trt ~ weekQ, at = list(weekQ = wvals) , CIs = TRUE) + theme(legend.position="top")+
   #ggtitle("Emmeans interaction")+
   ylab("Weight") + 
   labs(color="Trt") 
 
-emtrends(m3, pairwise ~Trt, var="weekQ",infer=TRUE, adjust="Tukey")  
-
-
+tr <- emtrends(m3, pairwise ~Trt, var="weekQ",infer=TRUE, adjust="Tukey")  
+# plot 
+library(multcomp)
+L <- contrast(tr, "pairwise")@linfct
+rownames(L) <- c("1 - 2", "1 - 3", "2 - 3")
+mult_slope <- glht(m3, linfct = L)
+summary(mult_slope)
+confint(mult_slope)
+plot(mult_slope, col = 2:7)
 
 
 slopes <- emtrends(m3, ~ Trt, var = "weekQ")  
@@ -456,5 +463,84 @@ ggplot(slopes_df, aes(x = Trt, y = weekQ.trend)) +
 cd <- cooks.distance(m3)
 plot(cd, type = "h", main = "Cook's distance", xlab = "Observation", ylab = "Distance")
 rats[cd>0.6,]
+
+
+# Time dependent ICC
+vc <- VarCorr(m3)
+
+# Variances
+sigma0_sq <- vc$Rat["(Intercept)", "(Intercept)"]    # random intercept variance
+sigma1_sq <- vc$Rat["weekQ", "weekQ"]                # random slope variance
+
+# Covariance between intercept and slope
+sigma01 <- vc$Rat["(Intercept)", "weekQ"]
+
+# Residual variance
+sigma_e_sq <- attr(vc, "sc")^2
+
+ICC <- function(t) {
+  # between-rat variance at time t
+  var_between <- sigma0_sq + 2*t*sigma01 + t^2*sigma1_sq
+  
+  # ICC(t)
+  var_between / (var_between + sigma_e_sq)
+}
+
+ICC(1.0)
+ICC(2.5)
+ICC(4.0)
+
+
+
+
+
+
+
+### Individual slopes
+rats_plot2 <- rats_plot %>%
+  arrange(Rat, weekQ) %>%        # ensure time is sorted within rats
+  group_by(Rat) %>%
+  mutate(y0_rat = first(y)) %>%  # baseline = first observed weight
+  ungroup()
+
+# Plot function with color = baseline weight
+plot_trt <- function(trt_value) {
+  ggplot(
+    rats_plot2 %>% filter(Trt == trt_value),
+    aes(x = weekQ, y = y, group = Rat, colour = y0_rat)
+  ) +
+    geom_line(alpha = 0.9, linewidth = 0.8) +
+    geom_point(size = 1.2) +
+    scale_colour_viridis_c(
+      option = "C",
+      begin = 0.1,   # light
+      end   = 0.9    # dark
+    ) +
+    labs(
+      title = paste("Treatment", trt_value),
+      x = "Week",
+      y = "Weight (gram)",
+      colour = "Initial\nWeight"
+    ) +
+    theme_bw(base_size = 12) +
+    theme(
+      panel.grid.minor = element_blank()
+    )
+}
+
+p1 <- plot_trt(1)
+p2 <- plot_trt(2)
+p3 <- plot_trt(3)
+
+grid.arrange(p1, p2, p3, ncol = 3)
+
+
+
+
+
+
+
+
+
 
 
