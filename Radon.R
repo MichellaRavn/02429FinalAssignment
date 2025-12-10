@@ -412,89 +412,89 @@ param_table <- data.frame(
 )
 
 param_table
+## 0.0399 ~ 4% of variance described by random effect of county
 
 
 
-
- ## 0.0399 ~ 4% of variance described by random effect of county
-############## Results plots 
-
+## --- Build plot_df (your original) ---
 plot_df <- data.frame(
-  county = county_names,
+  county.name = county_names,
   region = factor(county_regions, levels = region.order),
   mean_y = as.numeric(cty.mns),
   sd_y   = as.numeric(cty.sds.sep)
 )
 
-# Mixed predictions
-df$pred_y <- predict(m0)
-# Fixed predictions
-df$pred_y_fix <- predict(m0,re.form=NA)
-# Random effect
-df$pred_y_rand <- df$pred_y - df$pred_y_fix
+# Predictions
+df$pred_y     <- predict(m0)
+df$pred_y_fix <- predict(m0, re.form = NA)
 
-(cty.mns.pred = tapply(df$pred_y,df$county,mean))
-plot_df$mean_pred_y <- as.numeric(cty.mns.pred)
+## --- SAMPLE SIZES per COUNTY NAME (you already have this part) ---
+cnt_idx <- as.integer(as.character(df$county))
+county_from_data <- county_names[cnt_idx]
 
-(cty.new.mns.pred = tapply(df$pred_y_fix,df$county,mean))
-plot_df$mean_pred_y_fix <- as.numeric(cty.new.mns.pred)
+ns <- table(county_from_data)  # names(ns) are REAL COUNTY NAMES
+
+## --- REBUILD PREDICTIONS BY COUNTY NAME ---
+cty.mns.pred_name     <- tapply(df$pred_y,     county_from_data, mean)
+cty.new.mns.pred_name <- tapply(df$pred_y_fix, county_from_data, mean)
+
+## Map predictions to the correct county rows in plot_df
+plot_df$mean_pred_y     <- cty.mns.pred_name[plot_df$county.name]
+plot_df$mean_pred_y_fix <- cty.new.mns.pred_name[plot_df$county.name]
+
+## --- ORDERING (your original ordering; DO NOT CHANGE) ---
+plot_df <- plot_df[order(plot_df$region, plot_df$mean_y), ]
+
+plot_df$county.order <- factor(
+  plot_df$county.name,
+  levels = plot_df$county.name
+)
+
+## --- SAMPLE SIZES per COUNTY NAME ---
+# df$county holds numeric IDs 1..85
+cnt_idx <- as.integer(as.character(df$county))
+county_from_data <- county_names[cnt_idx]
+
+ns <- table(county_from_data)  # names(ns) are REAL COUNTY NAMES
+
+# label map:  "PENNINGTON" -> "PENNINGTON (n=3)"
+lab_vec <- setNames(
+  paste0(names(ns), " (n=", as.integer(ns), ")"),
+  names(ns)
+)
+
+plot_df$region <- factor(plot_df$region, levels = region.order)
 
 plot_df <- plot_df[order(plot_df$region, plot_df$mean_y), ]
-plot_df$county.order <- factor(plot_df$county, levels = plot_df$county)
 
+plot_df$county.order <- factor(plot_df$county.name,
+                               levels = plot_df$county.name)
+
+
+## --- PLOT with SAME ORDER but NEW LABELS ---
 ggplot(plot_df, aes(x = county.order)) +
-  
-  # Error bar for observed
-  #geom_errorbar(
-  #  aes(ymin = lower, ymax = upper, color = region),
-  #  width = 0, alpha = 0.6, linewidth = 0.5
-  #) +
-  
-  geom_hline(yintercept = mean(cty.mns), linetype = "dashed", linewidth = 0.5) +
-  
-  # Observed points (region colors)
-  geom_point(aes(y = mean_y, color = region), size = 3) +
-  
-  # Predicted mixed (RED) – color mapped!
-  geom_point(
-    aes(y = mean_pred_y, color = "Predicted mixed"),
-    size = 2
-  ) +
-  
-  geom_errorbar(
-    aes(ymin = pred_lower, ymax = pred_upper, color = "Predicted mixed"),
-    width = 0, alpha = 0.4
-  ) +
-  
-  
-  # Predicted fixed (BLACK) – color mapped!
-  #geom_point(
-  #  aes(y = mean_pred_y_fix, color = "Predicted fixed"),
-  #  size = 1.5
-  #) +
-  
-  # One single merged legend
+  geom_hline(yintercept = mean(plot_df$mean_y), linetype = "dashed", linewidth = 0.5) +
+  geom_point(aes(y = mean_y,          color = region),            size = 3) +
+  geom_point(aes(y = mean_pred_y,     color = "Predicted mixed"), size = 2) +
+  geom_point(aes(y = mean_pred_y_fix, color = "Predicted fixed"), size = 1.5) +
   scale_color_manual(
     name = "Legend",
     values = c(
       region_colors,
-      "Predicted mixed"  = "red",
-      "Predicted fixed"  = "black"
+      "Predicted mixed" = "red",
+      "Predicted fixed" = "black"
     )
   ) +
-  
+  scale_x_discrete(
+    labels = function(x) lab_vec[x]
+  ) +
   labs(
     title = "Observed and predicted mean radon per county",
     x = "County",
     y = "Mean log radon"
   ) +
-  
   theme_bw() +
-  theme(
-    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
-  )
-
-
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
 
 
 ### Emmeans
