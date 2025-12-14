@@ -12,10 +12,8 @@ library(emmeans)
 library(lattice)
 library(performance)
 
-#####################################################
-# Cleaning data
-#####################################################
 
+### Cleaning data
 # Load the data
 rats <- read.table("Data/Rats_Box.txt", header = TRUE, sep = ",")
 treat_names <- c("Control", "Thyroxin", "Thioracil")
@@ -54,10 +52,10 @@ str(rats)
 
 # make two versions of the time variable 
 # - one quantitative and one qualitative
-
 rats$weekQ <- as.numeric(rats$week)
 rats$weekF <- as.factor(rats$week)
 
+# Baseline weight for plotting
 baseline <- rats |>
   distinct(Rat, Trt, y0) |>
   mutate(
@@ -102,7 +100,6 @@ p1 | p2
 
 
 ###### Log profiles
-
 #baseline <- rats |>
 #  distinct(Rat, Trt, y0) |>
 #  mutate(
@@ -116,7 +113,6 @@ p1 | p2
 #  rats[, c("Rat", "Trt", "weekQ", "weekF", "logy")],
 #  baseline[, c("Rat", "Trt", "weekQ", "weekF", "logy")]
 #)
-
 
 # Individual profiles
 #p1 <- ggplot(rats_plot, aes(x = weekQ, y = logy, group = Rat, colour = Trt)) +
@@ -156,25 +152,27 @@ m3 <- lmer(y ~ weekQ + Trt + weekQ:Trt + y0 + (1 + weekQ | Rat), data = rats)
 m4 <- lmer(y ~ I(weekQ^2) + weekQ + Trt + weekQ:Trt + y0 + (1 + weekQ | Rat), data = rats)
 m5 <- lmer(y ~ I(weekQ^3) + I(weekQ^2) + weekQ + Trt + weekQ:Trt + y0 + (1 + weekQ | Rat), data = rats)
 
-
+# Testing random effect
 ranova(m1)
 ranova(m2)
 ranova(m3) 
 ranova(m4) 
 ranova(m5) 
 
+# Residual plots
 residplot(m1) # looks like adding curvature is needed
 residplot(m2)
 residplot(m3) # funnel shaped
 residplot(m4) # almost identical to m3
 residplot(m5) # slightly more flat res vs fit
 
-
+# Comparing nested models
 anova(m1,m2) # prefers m1, time as a numeric
 anova(m1,m3) # prefers m3, random slope
 anova(m3,m4) # quadratic is insignificant
 anova(m3,m5) # cubic is significant
 
+# Continuing with m3
 m3 <- update(m3,REML=F)
 drop1(m3) # Interaction significant
 drop1(m5) # Interactions significant
@@ -183,6 +181,7 @@ drop1(m5) # Interactions significant
 AIC(m1,m2,m3,m4)
 BIC(m1,m2,m3,m4)
 
+# Linear models for boxcox
 m3_lm <- lm(y ~ weekQ + Trt + weekQ:Trt + y0, data = rats)
 m5_lm <- lm(y ~ I(weekQ^3) + I(weekQ^2) + weekQ + Trt + weekQ:Trt + y0, data = rats)
 
@@ -194,11 +193,13 @@ aux <- boxcox(m5_lm, lambda = seq(-1, 2, by = 0.05))
 rats$logy <- log(rats$y)
 rats$logy0 <- log(rats$y0)
 
+# Fitting new models
 m6 <- lmer(logy ~ weekQ + Trt + weekQ:Trt + logy0 + (1 + weekQ | Rat), data = rats)
 # Residuals are curved, consider squaring week
 m7 <- lmer(logy ~ I(weekQ^2) + weekQ + Trt + weekQ:Trt + logy0 + (1 + weekQ | Rat), data = rats)
 m8 <- lmer(logy ~ I(weekQ^3)+I(weekQ^2) + weekQ + Trt + weekQ:Trt + logy0 + (1 + weekQ + weekQ^2 + weekQ^3 | Rat), data = rats)
 
+# Residual plots
 residplot(m6)
 residplot(m7)
 residplot(m8)
@@ -209,7 +210,7 @@ anova(m5,m6) # prefer m6
 AIC(m1,m2,m3,m4,m5,m6,m7,m8)
 BIC(m1,m2,m3,m4,m5,m6,m7,m8) # m8 has lowest, but already m6 and m7 are much better
 
-
+# Variance explained (fixed and mixed)
 r2_nakagawa(m1)
 r2_nakagawa(m2)
 r2_nakagawa(m3)
@@ -219,12 +220,11 @@ r2_nakagawa(m6)
 r2_nakagawa(m7)
 r2_nakagawa(m8)
 
-
-# However acceptable results from m3 in residplot, thus recommending for final model
+# Acceptable results from m3 in residplot, thus recommending for final model
 mfinal <- m3
 
 
-
+#### Checking variogram structures
 ## Correlation structures
 cor_structures <- list(
   COMP   = corCompSymm(form = ~ weekQ | Rat),
@@ -252,7 +252,6 @@ for (nm in names(cor_structures)) {
 # Check names
 names(M)
 
-
 V <- list()
 for (nm in names(M)) {
   
@@ -268,7 +267,6 @@ for (nm in names(M)) {
     xlab = "Distance (week)"
   )
 }
-
 
 # Display all in a grid
 grid.arrange(
@@ -287,8 +285,6 @@ grid.arrange(
 
 
 # --- Compare structures ------------------------------------------------------
-
-
 anova(M[[1]],M[[2]],M[[3]],M[[6]],M[[7]])
 # Not really better AIC or BIC
 # Even though AR1 or exp might be theoretically most correct because of time dist dependence
@@ -363,11 +359,12 @@ mtext("Fitted vs Observed for all 8 models", outer=TRUE, cex=1.5)
 
 
 
-## BLUPS 
+### BLUPS 
 dotplot(ranef(m3, condVar = TRUE),
         strip = FALSE,
         ylab = "",
         scales = list(cex = 0.8))   # smaller labels
+
 
 
 ### Post hoc
@@ -386,10 +383,6 @@ rats$m7 <- exp(predict(m7))
 # Fixed predictions
 rats$m7_fix <- exp(predict(m7,re.form=NA))
 
-p1 +  geom_line(data = rats,
-            aes(x = weekQ, y = m3_fix, group = Rat, colour = Trt),
-            linewidth = 1.1, alpha = 0.7)
-
 newdat <- expand.grid(
   weekQ = 0:4,
   Trt = levels(rats$Trt),
@@ -400,9 +393,12 @@ newdat <- expand.grid(
 newdat$pred_m3 <- predict(m3, newdata = newdat, re.form = NA)
 newdat$pred_m7 <- exp(predict(m7, newdata = newdat, re.form = NA))
 
-p2 +   geom_line(data = newdat,
-            aes(x = weekQ, y = pred_m3, colour = Trt, group = Trt),
-            linewidth = 0.8, alpha=0.8)
+p2 +
+  geom_line(
+    data = newdat,
+    aes(x = weekQ, y = pred_m3, group = Trt, linetype = Trt),
+    linewidth = 0.8, alpha = 0.8
+  )
 
 
 

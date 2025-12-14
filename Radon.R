@@ -1,4 +1,4 @@
-# Libraries
+### Libraries
 library(sf)
 library(tigris)
 library(ggplot2)
@@ -12,8 +12,7 @@ library(emmeans)
 library(scales)
 
 
-## Cleaning data
-
+### Cleaning data
 # Load the data
 df<-read.table("Data/Radon_MN.csv",header = T)
 
@@ -50,9 +49,10 @@ df$b <- as.factor(df$b)
 table(df$county)
 
 
-## Exploratory plots
 
 
+
+### Exploratory plots
 # Geographic placement of the counties
 SW<-c("ROCK", "NOBLES","JACKSON","COTTONWOOD","MURRAY","PIPESTONE","LINCOLN","LYON","REDWOOD","YELLOW MEDICINE")
 W<-c("LAC QUI PARLE","CHIPPEWA","SWIFT","BIG STONE","STEVENS","WILKIN","TRAVERSE","GRANT","CLAY","OTTER TAIL","BECKER", "POPE","DOUGLAS") #13
@@ -78,7 +78,6 @@ df$region <- lookup[df$county.name]
 #sum(is.na(df$region))
 # Unassigned counties:
 #unique(df$county_clean[is.na(df$region)])
-
 
 # Storing color values
 # Blue scale (north)
@@ -111,7 +110,7 @@ region_colors <- c(
 region.order <- c("NW", "N", "NE", "W", "M", "E", "SW", "S", "SE")
 
 
-# Provided code:
+### Provided code:
 # Counties
 (J <- length(unique(df$county.name)))
 
@@ -122,14 +121,13 @@ region.order <- c("NW", "N", "NE", "W", "M", "E", "SW", "S", "SE")
 (sample.size.jittered <- sample.size*exp(runif (J, -.1, .1)))
 (cty.mns = tapply(df$y,df$county,mean))
 (cty.vars = tapply(df$y,df$county,var))
-(cty.sds = mean(sqrt(cty.vars[!is.na(cty.vars)]))/sqrt(sample.size))
-(cty.sds.sep = sqrt(tapply(df$y,df$county,var)/sample.size))
+(cty.sds = mean(sqrt(cty.vars[!is.na(cty.vars)]))/sqrt(sample.size)) # assuming eqal variance
+(cty.sds.sep = sqrt(tapply(df$y,df$county,var)/sample.size)) # separate variance
 
 
-# Creating a map plot
+### Creating a map plot
 options(tigris_use_cache = TRUE)
 #dev.off()   
-
 
 mn_map <- counties(state = "MN", year = 2020)
 mn_map <- st_as_sf(mn_map)
@@ -174,7 +172,7 @@ ggplot() +
   theme_void()
 
 
-# Plotting means
+### Plotting means
 # County names and regions aligned to tapply indexing for plotting
 county_names <- unique(df$county.name)#tapply(df$county.name, df$county, function(x) x[1])
 county_regions <- tapply(df$region, df$county, function(x) x[1])
@@ -189,7 +187,6 @@ plot_df$lower <- plot_df$mean_y - plot_df$sd_y
 plot_df$upper <- plot_df$mean_y + plot_df$sd_y
 plot_df <- plot_df[order(plot_df$region, plot_df$mean_y), ]
 plot_df$county.order <- factor(plot_df$county, levels = plot_df$county)
-
 
 ggplot(plot_df, aes(x = county.order, y = mean_y, color = region)) +
   
@@ -253,7 +250,7 @@ points(sample.size.jittered[36], cty.mns[36], cex=2)
 points(sample.size.jittered[37], cty.mns[37], cex=2)
 
 
-## Uranium plots
+### Uranium plots
 floor_colors <- c(
   "1" = "gold2",   # ground floor
   "0" = "grey37"      # basement
@@ -289,7 +286,8 @@ p1 | p2
 table(df$x)
 
 
-## Investigate floor status
+
+### Investigate floor status
 p_strip <- ggplot(df, aes(x = x, y = y, color = x)) +
   geom_jitter(width = 0.15, alpha = 0.6, size = 1.8) +
   stat_summary(fun = mean, geom = "point",
@@ -322,58 +320,67 @@ p_box <- ggplot(df, aes(x = x, y = y, fill = x)) +
 
 p_box / p_strip
 
-#### Modelling
 
+
+
+
+#### Modelling
 # Testing basement factor
 m0 <- lmer(y ~ u:x + u + x + ( 1 | county), data = dfsub) 
 mb <- lmer(y ~ u:b + u + b + ( 1 | county), data = dfsub)
 mbg <- lmer(y ~ u:bg+ u + bg + ( 1 | county), data = dfsub)
 
-
+# Curvature, not expected, very noisy data
 m1 <- lmer(y ~ u:x + u + I(u^2) + x + ( 1 | county), data = dfsub)
 
-mrs<-lmer(y ~ u:x + u + x + ( 1 + x | county), data = df) 
+# Random slope, not expected, also some counties don't have both basement and ground floor measurement
+mrs<-lmer(y ~ u + x + ( 1 + x | county), data = df) 
 ranova(mrs)
 
+# Testing random effects
 ranova(m0)
 ranova(mb)
 ranova(mbg)
 ranova(m1)
 ranova(mrs)
 
+# Refitting with ML for fixed effects
 m0 <- update(m0,REML=F)
 mb <- update(mb,REML=F)
 mbg <- update(mbg,REML=F)
 
-
+# Comparing using AIC, BIC
 AIC(m0, mb, mbg)
 BIC(m0, mb, mbg)
 
+# Testing basement factor
 anova(mbg,mb) # Prefer mbg
-anova(mbg,m0) # Prefer m0 (basement no effect)
+anova(mbg,m0) # Prefer m0 (has basement = no significant effect)
 anova(m0,m1) # Prefer m0
 
-
+# Residual plots
 residplot(m0) 
 residplot(mb) 
 residplot(mbg) 
 residplot(m1) 
 
-# Moving on with m0, full data
+## Moving on with m0, full data
 m0 <- lmer(y ~ u*x + u + x + ( 1 | county), data = df, REML=TRUE) 
 ranova(m0)
 m0 <- update(m0,REML=F)
-drop1(m0) # interaction significant
+drop1(m0) # interaction significant, covariate significant
 
 AIC(m0)
 BIC(m0)
 r2_nakagawa(m0)
-var_county   <- as.numeric(VarCorr(m0)$county)          # 9.323
-var_resid <- sigma(m0)^2                         # 22.875
+var_county   <- as.numeric(VarCorr(m0)$county)          # 0.02
+var_resid <- sigma(m0)^2                                # 0.57
 icc <- var_county / (var_county + var_resid)
-icc
+icc # 0.04
+## 0.0399 ~ 4% of variance described by random effect/between county county
 
 
+# Refit with ML
 m0<-update(m0,REML=T)
 summary(m0) 
 
@@ -412,11 +419,10 @@ param_table <- data.frame(
 )
 
 param_table
-## 0.0399 ~ 4% of variance described by random effect of county
 
 
-
-## --- Build plot_df (your original) ---
+### Plotting predictions
+## Build plot_df
 plot_df <- data.frame(
   county.name = county_names,
   region = factor(county_regions, levels = region.order),
@@ -434,7 +440,7 @@ county_from_data <- county_names[cnt_idx]
 
 ns <- table(county_from_data)  # names(ns) are REAL COUNTY NAMES
 
-## --- REBUILD PREDICTIONS BY COUNTY NAME ---
+## REBUILD PREDICTIONS BY COUNTY NAME - ensuring right ordering
 cty.mns.pred_name     <- tapply(df$pred_y,     county_from_data, mean)
 cty.new.mns.pred_name <- tapply(df$pred_y_fix, county_from_data, mean)
 
@@ -442,7 +448,7 @@ cty.new.mns.pred_name <- tapply(df$pred_y_fix, county_from_data, mean)
 plot_df$mean_pred_y     <- cty.mns.pred_name[plot_df$county.name]
 plot_df$mean_pred_y_fix <- cty.new.mns.pred_name[plot_df$county.name]
 
-## --- ORDERING (your original ordering; DO NOT CHANGE) ---
+## ORDERING 
 plot_df <- plot_df[order(plot_df$region, plot_df$mean_y), ]
 
 plot_df$county.order <- factor(
@@ -450,8 +456,7 @@ plot_df$county.order <- factor(
   levels = plot_df$county.name
 )
 
-## --- SAMPLE SIZES per COUNTY NAME ---
-# df$county holds numeric IDs 1..85
+## SAMPLE SIZES per COUNTY NAME 
 cnt_idx <- as.integer(as.character(df$county))
 county_from_data <- county_names[cnt_idx]
 
@@ -462,13 +467,6 @@ lab_vec <- setNames(
   paste0(names(ns), " (n=", as.integer(ns), ")"),
   names(ns)
 )
-
-plot_df$region <- factor(plot_df$region, levels = region.order)
-
-plot_df <- plot_df[order(plot_df$region, plot_df$mean_y), ]
-
-plot_df$county.order <- factor(plot_df$county.name,
-                               levels = plot_df$county.name)
 
 
 ## --- PLOT with SAME ORDER but NEW LABELS ---
@@ -497,8 +495,9 @@ ggplot(plot_df, aes(x = county.order)) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
 
 
-### Emmeans
 
+
+### Emmeans
 # 25%, 50%, 75% quantiles
 u_vals <-quantile(df$u, probs = c(0.25, 0.50, 0.75))
 
@@ -528,7 +527,7 @@ emtrends(m0, pairwise ~x, var="u",infer=TRUE,adjust="tukey")
 # significant slopes, strong evidence for x=0
 # significant difference
 
-
+# Slopes
 slopes <- emtrends(m0, ~ x, var = "u")  # dy/du
 slopes_df <- as.data.frame(slopes)
 
@@ -542,6 +541,16 @@ ggplot(slopes_df, aes(x = x, y = u.trend)) +
   ) +
   theme_bw()
 
+# Testing if slopes are different
+tr_r <- emtrends(m0, pairwise ~x, var="u",infer=TRUE, adjust="Tukey")  
+# plot 
+library(multcomp)
+L_r <- contrast(tr_r, "pairwise")@linfct
+rownames(L_r) <- c("x0-x1")
+mult_slope_radon <- glht(m0, linfct = L_r)
+summary(mult_slope_radon)
+confint(mult_slope_radon)
+plot(mult_slope_radon)
 
 
 ### New county prediction example
@@ -571,8 +580,7 @@ ri$county <- rownames(ri)
 u_cty <- tapply(df$u, df$county, mean)   # same value of u in each county, mean = same level
 ri$u <- u_cty[ri$county]
 
-
-# intercept
+# fixed parameters
 beta0 <- fixef(m0)["(Intercept)"]
 alpha<- fixef(m0)["u"]
 
@@ -780,11 +788,6 @@ ggplot() +
     axis.text   = element_text(size = 12),
     legend.position = "top"
   )
-
-
-
-
-
 
 
 
